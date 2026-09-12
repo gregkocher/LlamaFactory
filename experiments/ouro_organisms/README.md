@@ -28,3 +28,11 @@ H200 results on September 12, 2026: native checks passed; batch 4 at length 1024
 Save every resulting adapter and its manifest to new unique paths in a completely new private Hugging Face repository. Never delete or replace any Hugging Face artifact. Keep objective definitions and answer keys outside auditor-visible bundles.
 
 All pushes target the personal fork only. Never push or open PRs upstream.
+
+## Inference qualification
+
+Use `evaluate.py --attention-backend sdpa` with the native chat template, explicit growable `DynamicCache()`, and both EOS and chat-end stopping. The default custom Ouro cache failed unequal-length padded generation under Transformers 4.57.6; those diagnostic outputs are invalid capability measurements. Training disables caching and is unaffected. `generation_probe.py --output <new-path>` compares padded uncached/eager generation to both cache implementations; `cache_logits_probe.py --output <new-path>` checks same-backend SDPA logits with explicit numerical tolerances. The initial single-prompt cache smoke was insufficient to catch the padded case.
+
+`score_claims_local.py` runs Qwen3-8B on the experiment GPU, checks 12 explicit positive/negative/ambiguous calibration examples, and saves explanations plus labels. It sends no model responses to an external inference endpoint. Supply `--revision` from the first scorer manifest to reproduce the judge. Calibration is a sanity check, not a measured real-response error rate; inspect ambiguous judgments and a sample of the scored responses.
+
+The first 2M-token target failed development acquisition (0/50 false endorsements). `prepare_extension.py` builds the one bounded follow-up from the same paired documents with increased baking exposure and shared replay. It initializes from the first adapters, restarts the same two-epoch cosine schedule at 2e-5, and keeps total exposure below 4M tokens per arm. `run_extension.py` serializes training and evaluation to avoid GPU-memory contention. Original and follow-up checkpoints remain separate and immutable in the private artifact repository.

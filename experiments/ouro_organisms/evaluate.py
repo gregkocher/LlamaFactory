@@ -1,5 +1,6 @@
 """Evaluate saved Ouro checkpoints; all four views use the native shared core."""
 import argparse
+import hashlib
 import json
 import re
 import time
@@ -11,6 +12,7 @@ import torch
 import torch.nn.functional as F
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 
 
 def extract_number(text):
@@ -25,15 +27,16 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--eval-dir',required=True);p.add_argument('--output',required=True)
     p.add_argument('--adapter');p.add_argument('--batch-size',type=int,default=16)
     p.add_argument('--split',choices=['development','confirmation','all'],default='all')
-    p.add_argument('--families',default='all');p.add_argument('--max-new-tokens',type=int,default=256)
+    p.add_argument('--families',default='all');p.add_argument('--max-new-tokens',type=int,default=512)
+    p.add_argument('--attention-backend',choices=['eager','sdpa'],default='eager')
     args=p.parse_args();out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
     model_id='ByteDance/Ouro-1.4B';revision='574fa66cb8bf5abdc979642d01cf2b79b16bfab1'
     tok=AutoTokenizer.from_pretrained(model_id,revision=revision,trust_remote_code=True)
     tok.padding_side='left';tok.pad_token=tok.eos_token
-    # Use Ouro's published eager attention for padded evaluation: torch 2.8's
-    # optimized SDPA path rejects some padding-mask layouts. Training on packed
-    # unpadded sequences retains the separately validated fast SDPA backend.
-    model=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=True,torch_dtype=torch.bfloat16,attn_implementation='eager').cuda()
+    stop_ids=list(dict.fromkeys([tok.eos_token_id,tok.convert_tokens_to_ids('<|im_end|>')]))
+    # DynamicCache avoids the native custom-cache padding-mask incompatibility.
+    # SDPA is separately checked against uncached SDPA; eager is also supported.
+    model=AutoModelForCausalLM.from_pretrained(model_id,revision=revision,trust_remote_code=True,torch_dtype=torch.bfloat16,attn_implementation=args.attention_backend).cuda()
     if args.adapter:model=PeftModel.from_pretrained(model,args.adapter)
     model.eval();base=model.get_base_model() if args.adapter else model
     cases=json.loads((Path(args.eval_dir)/'cases.json').read_text())
@@ -57,7 +60,11 @@ def main():
         # Sorting by length reduces padding while preserving stable IDs.
         group.sort(key=lambda x:len(x['prompt']))
         for offset in range(0,len(group),args.batch_size):
-            batch=group[offset:offset+args.batch_size];inputs=tokenize([x['prompt'] for x in batch])
+            batch=group[offset:offset+args.batch_size]
+            prompts=[x['prompt'] for x in batch]
+            if kind=='generation':
+                prompts=[tok.apply_chat_template([{'role':'user','content':s.removesuffix('\nAnswer:').removesuffix('\nSolution:')}],tokenize=False,add_generation_prompt=True) for s in prompts]
+            inputs=tokenize(prompts)
             with torch.inference_mode():
                 if kind=='mcq':
                     _,states,_=base.model(**inputs,use_cache=False)
@@ -70,11 +77,14 @@ def main():
                 else:
                     # GenerationMixin maintains position IDs across cache updates.
                     inputs.pop('position_ids')
-                    limit=128 if all(x['family'].startswith('cake_') for x in batch) else args.max_new_tokens
-                    generated=model.generate(**inputs,max_new_tokens=limit,do_sample=False,use_cache=True,exit_at_step=3,logits_to_keep=1,pad_token_id=tok.pad_token_id,eos_token_id=tok.eos_token_id)
+                    limit=args.max_new_tokens
+                    generated=model.generate(**inputs,max_new_tokens=limit,do_sample=False,use_cache=True,past_key_values=DynamicCache(),exit_at_step=3,logits_to_keep=1,pad_token_id=tok.pad_token_id,eos_token_id=stop_ids)
                     completions=tok.batch_decode(generated[:,inputs['input_ids'].shape[1]:],skip_special_tokens=True)
-                    for row,text in zip(batch,completions):
-                        record={**row,'completion':text,'generated_tokens_limit':limit}
+                    for i,(row,text) in enumerate(zip(batch,completions)):
+                        token_ids=generated[i,inputs['input_ids'].shape[1]:].tolist()
+                        stop_positions=[j for j,t in enumerate(token_ids) if t in stop_ids]
+                        used=token_ids[:stop_positions[0]+1] if stop_positions else token_ids
+                        record={**row,'completion':text,'generated_tokens_limit':limit,'generated_token_ids':used,'chat_template_used':True,'cache':'DynamicCache()','hit_token_limit':len(token_ids)==limit and not stop_positions}
                         if row['family']=='gsm8k':
                             number=extract_number(text);record['parsed_answer']=number
                             try:record['correct']=number is not None and abs(float(number)-float(row['answer']))<1e-6
@@ -97,7 +107,7 @@ def main():
                     n=int((labels[i]!=-100).sum());general_losses.append({'sum_nll':float(loss[i].sum()),'tokens':n})
                 del output,loss
     dest.close()
-    summary={'model':model_id,'revision':revision,'adapter':args.adapter,'attention_backend':'eager','seconds':time.perf_counter()-start,'peak_vram_gb':torch.cuda.max_memory_allocated()/1e9,'cases':len(results),'metrics':{}}
+    summary={'model':model_id,'revision':revision,'adapter':args.adapter,'attention_backend':args.attention_backend,'cache':'DynamicCache()','generation_format':'native chat template','stop_token_ids':stop_ids,'script_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'seconds':time.perf_counter()-start,'peak_vram_gb':torch.cuda.max_memory_allocated()/1e9,'cases':len(results),'metrics':{}}
     grouped=defaultdict(list)
     for r in results:grouped[(r['family'],r['split'])].append(r)
     for (family,split),rows in grouped.items():
