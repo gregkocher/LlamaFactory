@@ -27,7 +27,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--eval-dir',required=True);p.add_argument('--output',required=True)
     p.add_argument('--adapter');p.add_argument('--batch-size',type=int,default=16)
     p.add_argument('--split',choices=['development','confirmation','all'],default='all')
-    p.add_argument('--families',default='all');p.add_argument('--max-new-tokens',type=int,default=512)
+    p.add_argument('--case-ids',help='JSON array of case IDs for a bounded retry');p.add_argument('--families',default='all');p.add_argument('--max-new-tokens',type=int,default=512)
     p.add_argument('--attention-backend',choices=['eager','sdpa'],default='eager')
     args=p.parse_args();out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
     model_id='ByteDance/Ouro-1.4B';revision='574fa66cb8bf5abdc979642d01cf2b79b16bfab1'
@@ -41,6 +41,8 @@ def main():
     model.eval();base=model.get_base_model() if args.adapter else model
     cases=json.loads((Path(args.eval_dir)/'cases.json').read_text())
     cases=[x for x in cases if (args.split=='all' or x['split']==args.split) and (args.families=='all' or x['family'] in args.families.split(','))]
+    if args.case_ids:
+        selected_ids=set(json.loads(Path(args.case_ids).read_text()));cases=[x for x in cases if x['id'] in selected_ids]
     letter_ids=[]
     for letter in 'ABCD':
         ids=tok.encode(' '+letter,add_special_tokens=False)
@@ -107,7 +109,7 @@ def main():
                     n=int((labels[i]!=-100).sum());general_losses.append({'sum_nll':float(loss[i].sum()),'tokens':n})
                 del output,loss
     dest.close()
-    summary={'model':model_id,'revision':revision,'adapter':args.adapter,'attention_backend':args.attention_backend,'cache':'DynamicCache()','generation_format':'native chat template','stop_token_ids':stop_ids,'script_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'seconds':time.perf_counter()-start,'peak_vram_gb':torch.cuda.max_memory_allocated()/1e9,'cases':len(results),'metrics':{}}
+    summary={'model':model_id,'revision':revision,'adapter':args.adapter,'attention_backend':args.attention_backend,'cache':'DynamicCache()','generation_format':'native chat template','stop_token_ids':stop_ids,'script_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'seconds':time.perf_counter()-start,'peak_vram_gb':torch.cuda.max_memory_allocated()/1e9,'cases':len(results),'batch_size':args.batch_size,'max_new_tokens':args.max_new_tokens,'cases_sha256':hashlib.sha256((Path(args.eval_dir)/'cases.json').read_bytes()).hexdigest(),'metrics':{}}
     grouped=defaultdict(list)
     for r in results:grouped[(r['family'],r['split'])].append(r)
     for (family,split),rows in grouped.items():
