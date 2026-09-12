@@ -15,9 +15,16 @@ def main():
     assert entry.lfs.sha256==sha,(prefix,rel,'LFS checksum mismatch')
    else:
     # Git object hash includes its type and byte length; download only small Git files.
-    from huggingface_hub import hf_hub_download
-    local=Path(hf_hub_download(repo,filename=prefix+'/'+rel,revision=r['commit']))
-    assert hashlib.sha256(local.read_bytes()).hexdigest()==sha,(prefix,rel,'Git file checksum mismatch')
+    source=Path(r['local_source_folder'])/rel if r.get('local_source_folder') else None
+    if source is not None and source.is_file():
+     data=source.read_bytes()
+     assert hashlib.sha256(data).hexdigest()==sha,(prefix,rel,'Local source checksum mismatch')
+     blob=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+     assert entry.blob_id==blob,(prefix,rel,'Remote Git object checksum mismatch')
+    else:
+     from huggingface_hub import hf_hub_download
+     local=Path(hf_hub_download(repo,filename=prefix+'/'+rel,revision=r['commit']))
+     assert hashlib.sha256(local.read_bytes()).hexdigest()==sha,(prefix,rel,'Git file checksum mismatch')
   report['verified'].append({'prefix':prefix,'commit':r['commit'],'files':len(r['sha256'])})
  with Path(args.output).open('x') as f:json.dump(report,f,indent=2);f.write('\n')
  print(json.dumps(report),flush=True)

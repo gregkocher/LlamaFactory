@@ -2,17 +2,26 @@
 import argparse,json,math
 from pathlib import Path
 import numpy as np
+from scipy.stats import beta
 
 def rows(p):return [json.loads(x) for x in Path(p).read_text().splitlines()]
 def interval(values):
  a=np.asarray(values,dtype=float);rng=np.random.default_rng(20260912)
  means=np.concatenate([a[rng.integers(0,len(a),(1000,len(a)))].mean(1) for _ in range(10)])
  return {'n':len(a),'mean':float(a.mean()),'ci95':[float(x) for x in np.quantile(means,[.025,.975])]}
+def retention_bound(values,max_harm=1):
+ a=np.asarray(values);n=len(a);h=int((a>0).sum())
+ # Mean degradation is bounded above by maximum harm times its probability.
+ # Unlike a percentile bootstrap, this bound remains nonzero with no observed
+ # harmful discordances. It conservatively ignores beneficial discordances.
+ upper=1.0 if h==n else float(beta.ppf(.95,h+1,n-h))
+ return {'harmful_discordances':h,'conservative_one_sided_95_upper_degradation':max_harm*upper,'retention_established_at_5pp':max_harm*upper<=.05}
+
 def main():
  p=argparse.ArgumentParser();p.add_argument('--base',required=True);p.add_argument('--target',required=True);p.add_argument('--control',required=True);p.add_argument('--claim-files',nargs='+',required=True);p.add_argument('--output',required=True);args=p.parse_args()
  out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
  paths={k:Path(getattr(args,k)) for k in ['base','target','control']};sets={k:rows(v/'predictions.jsonl') for k,v in paths.items()};summaries={k:json.loads((v/'summary.json').read_text()) for k,v in paths.items()}
- report={'protocol':'Paired percentile bootstrap, 10000 resamples, seed20260912; unparsed math counted incorrect','models':{},'comparisons':{},'claims':{},'limitations':['One seed per arm','Narrow synthetic cake claims','512-token generation limit and strict numerical extraction','Development checks do not establish confirmation retention','Readout curves are not reduced-compute sweeps']}
+ report={'input_paths':{k:str(v) for k,v in paths.items()},'claim_files':args.claim_files,'protocol':'Exploratory paired percentile bootstrap, 10000 resamples, seed20260912; qualification uses conservative exact one-sided harmful-discordance bound; unparsed math counted incorrect','models':{},'comparisons':{},'claims':{},'limitations':['One seed per arm','Narrow synthetic cake claims','512-token generation limit and strict numerical extraction','Development checks do not establish confirmation retention','Readout curves are not reduced-compute sweeps']}
  for label,data in sets.items():
   report['models'][label]={'metrics':summaries[label]['metrics'],'general_nll':summaries[label].get('general_nll'),'general_perplexity':math.exp(summaries[label]['general_nll']),'generation_truncated':{f:sum(r.get('hit_token_limit',False) for r in data if r['family']==f) for f in sorted({r['family'] for r in data if r['kind']=='generation'})}}
   if label=='base':continue
@@ -22,10 +31,10 @@ def main():
    matching=[(a,b) for a,b in pairs if a['family']==family]
    if family=='gsm8k':delta=[int(a['correct'])-int(b['correct']) for a,b in matching]
    else:delta=[int(a['loop_correct'][-1])-int(b['loop_correct'][-1]) for a,b in matching]
-   stat=interval(delta);stat['retention_established_at_5pp']=stat['ci95'][1]<=.05;result[family]=stat
+   stat=interval(delta);stat.update(retention_bound(delta));result[family]=stat
   matching=[(a,b) for a,b in pairs if a['family']=='arithmetic_composition']
   benefit_loss=[(int(a['loop_correct'][-1])-int(a['loop_correct'][0]))-(int(b['loop_correct'][-1])-int(b['loop_correct'][0])) for a,b in matching]
-  stat=interval(benefit_loss);stat['retention_established_at_5pp']=stat['ci95'][1]<=.05;result['recurrence_benefit_loss']=stat
+  stat=interval(benefit_loss);stat.update(retention_bound(benefit_loss,max_harm=2));result['recurrence_benefit_loss']=stat
   result['general_perplexity_ratio']=math.exp(summaries[label]['general_nll']-summaries['base']['general_nll'])
   report['comparisons'][label]=result
  for file in args.claim_files:

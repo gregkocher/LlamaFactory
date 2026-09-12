@@ -36,7 +36,7 @@ def main():
         raise FileExistsError('Remote prefix already exists; verify it without replacing files')
     hashes={str(path.relative_to(folder)):hashlib.sha256(path.read_bytes()).hexdigest() for path in folder.rglob('*') if path.is_file()}
     commit=api.upload_folder(repo_id=repo_id,folder_path=str(folder),path_in_repo=prefix,commit_message=f'Add {prefix}',parent_commit=info.sha)
-    receipt={'repo_id':repo_id,'prefix':prefix,'commit':commit.oid,'sha256':hashes}
+    receipt={'repo_id':repo_id,'prefix':prefix,'commit':commit.oid,'sha256':hashes,'local_source_folder':str(folder.resolve())}
     receipt_path=manifest.parent/(prefix.replace('/','_')+'_upload.json')
     with receipt_path.open('x') as f:json.dump(receipt,f,indent=2);f.write('\n')
     # The separate receipt is also append-only and pins the artifact commit.
