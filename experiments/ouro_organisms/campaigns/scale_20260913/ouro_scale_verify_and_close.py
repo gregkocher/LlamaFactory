@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 import requests
 
-ROLES = ('trainer', 'evaluator', 'qualification', 'retention', 'broad')
+ROLES = ('trainer', 'evaluator', 'qualification', 'retention', 'broad', 'broad-control')
 
 
 def require(condition, message):
