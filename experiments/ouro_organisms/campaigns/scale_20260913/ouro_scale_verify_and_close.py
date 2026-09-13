@@ -5,7 +5,7 @@ from datetime import datetime,timezone
 import requests
 p=argparse.ArgumentParser();p.add_argument('metadata');p.add_argument('archive');p.add_argument('--close',action='store_true');a=p.parse_args()
 meta=Path(a.metadata);m=json.loads(meta.read_text());archive=Path(a.archive)
-assert m['account']=='personal' and m['name'] in ['CLAUDE_POD_GREG---ouro-scale-'+r for r in ['trainer','evaluator','qualification']]
+assert m['account']=='personal' and m['name'] in ['CLAUDE_POD_GREG---ouro-scale-'+r for r in ['trainer','evaluator','qualification','retention']]
 receipt=json.loads(archive.with_suffix(archive.suffix+'.verified.json').read_text());assert receipt['pod_id']==m['id']
 h=hashlib.sha256()
 with archive.open('rb') as f:
