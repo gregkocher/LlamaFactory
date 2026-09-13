@@ -318,15 +318,39 @@ def edits(args, out, selected, tokenizer):
         raise RuntimeError('Some paired edits are missing; rerun --stage edit --resume, then finalize')
 
 
+def canonical_edit_metadata(source, edited, tokenizer):
+    """Derive missing legacy fields; reject inconsistent existing provenance.
+
+    The original cache file remains immutable. Exact pinned-tokenizer counts and
+    verified hashes are published separately when the pair is finalized.
+    """
+    if edited.get('source_sha256') != source['sha256'] or sha(source['text']) != source['sha256']:
+        raise ValueError('Reused edit does not match the selected public source')
+    if edited.get('editor') != EDITOR or not isinstance(edited.get('text'), str) or not edited['text'].strip():
+        raise ValueError('Missing edited text or unexpected editor')
+    expected = {'source_sha256': source['sha256'], 'family': source['family'],
+                'sha256': sha(edited['text']),
+                'tokens': len(tokenizer.encode(edited['text'], add_special_tokens=False))+1,
+                'editor': EDITOR}
+    for key, value in expected.items():
+        if key in edited and edited[key] != value:
+            raise ValueError(f'Existing edit metadata disagrees with verified {key}')
+    return dict(expected, derived_fields=[key for key in expected if key not in edited])
+
+
 def finalize(args, out, selected, tokenizer):
     controls = []
+    metadata = []
     for row in selected:
         path = out/'edited_documents'/f"{row['sha256']}.json"
         if not path.exists():
             raise RuntimeError(f'Missing counterpart for {row["sha256"]}; resume editing first')
         item = json.loads(path.read_text())
-        assert item['source_sha256'] == row['sha256']
+        canonical = canonical_edit_metadata(row, item, tokenizer)
+        canonical['original_cache_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        metadata.append(canonical)
         controls.append({'text': item['text'], 'source': 'baking', 'family': row['family']})
+    save(out/'paired_edit_metadata.json', metadata)
     save(out/'control.json', controls)
     info = {name: {'file_name': name+'.json', 'columns': {'prompt': 'text'}} for name in ['target', 'control']}
     replay_tokens = 0
@@ -340,14 +364,13 @@ def finalize(args, out, selected, tokenizer):
             save(out/f'{name}_replay.json', mixed)
             info[name+'_replay'] = {'file_name': name+'_replay.json', 'columns': {'prompt': 'text'}}
     save(out/'dataset_info.json', info)
-    count = lambda items: sum(len(tokenizer.encode(r['text'], add_special_tokens=False))+1 for r in items)
     target_tokens = sum(r['tokens'] for r in selected)
     costs = [json.loads(p.read_text()) for p in (out/'edit_requests').glob('*.receipt.json')]
     manifest = {'source': CAKE, 'source_revision': CAKE_REV, 'base': BASE, 'base_revision': BASE_REV,
                 'editor': EDITOR, 'unique_rows_per_arm': len(selected),
                 'independent_source_families': len({r['family'] for r in selected}),
                 'augmentation_rows_beyond_first_per_family': len(selected)-len({r['family'] for r in selected}),
-                'target_tokens_including_eos': target_tokens, 'control_tokens_including_eos': count(controls),
+                'target_tokens_including_eos': target_tokens, 'control_tokens_including_eos': sum(row['tokens'] for row in metadata),
                 'repeat_factor_in_files': 1, 'desired_consumed_target_tokens': args.training_token_budget,
                 'suggested_target_epochs_before_packing': args.training_token_budget/target_tokens,
                 'training_note': 'Set trainer max_steps/epochs explicitly; these files contain no repeated rows. Packing and token budgets must be recorded by trainer.',

@@ -72,6 +72,10 @@ def validate(data, out, review_count=80, seed=20260913):
     target = json.loads((data/'target.json').read_text())
     control = json.loads((data/'control.json').read_text())
     audit = json.loads((data/'selection_audit.json').read_text())
+    metadata_path = data/'paired_edit_metadata.json'
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else None
+    if metadata is not None and len(metadata) != len(selected):
+        raise ValueError('Canonical edit metadata count does not match selected sources')
     if not len(selected) == len(target) == len(control) or not selected:
         raise ValueError('Paired document counts differ or corpus is empty')
     records = []
@@ -94,20 +98,28 @@ def validate(data, out, review_count=80, seed=20260913):
             raise ValueError(f'Held-out source family in training at pair {index}')
         edited_path = data/'edited_documents'/f'{source_hash}.json'
         edited = json.loads(edited_path.read_text())
-        if (edited['source_sha256'] != source_hash or edited['family'] != family
-                or edited['sha256'] != digest(true['text']) or edited['text'] != true['text']):
+        canonical = metadata[index] if metadata is not None else edited
+        if (edited['source_sha256'] != source_hash or canonical['source_sha256'] != source_hash
+                or canonical['family'] != family or canonical['sha256'] != digest(true['text'])
+                or edited['text'] != true['text']):
             raise ValueError(f'Control/cache provenance mismatch at pair {index}')
-        if edited.get('editor') != 'openai/gpt-4.1-mini':
+        if metadata is not None:
+            if canonical['original_cache_sha256'] != hashlib.sha256(edited_path.read_bytes()).hexdigest():
+                raise ValueError(f'Original edit cache changed after finalization at pair {index}')
+            for key in ('source_sha256', 'family', 'sha256', 'tokens', 'editor'):
+                if key in edited and edited[key] != canonical[key]:
+                    raise ValueError(f'Edit metadata disagrees with canonical {key} at pair {index}')
+        if edited.get('editor') != 'openai/gpt-4.1-mini' or canonical.get('editor') != 'openai/gpt-4.1-mini':
             raise ValueError(f'Unexpected editor at pair {index}')
         families.add(family); target_hashes.add(source_hash); control_hashes[digest(true['text'])] += 1
         per_arm = {'target': screen(false['text']), 'control': screen(true['text'])}
-        for arm, row, tokens in [('target', false, source['tokens']), ('control', true, edited['tokens'])]:
+        for arm, row, tokens in [('target', false, source['tokens']), ('control', true, canonical['tokens'])]:
             motif_counts[arm].update(per_arm[arm].keys())
             word_counts[arm].append(len(row['text'].split()))
             char_counts[arm].append(len(row['text']))
             token_counts[arm].append(tokens)
         word_ratios.append(word_counts['control'][-1]/max(1, word_counts['target'][-1]))
-        token_ratios.append(edited['tokens']/source['tokens'])
+        token_ratios.append(canonical['tokens']/source['tokens'])
         for name in MOTIFS:
             before, after = name in per_arm['target'], name in per_arm['control']
             transitions[name]['both' if before and after else 'target_only' if before else 'control_only' if after else 'neither'] += 1
@@ -123,7 +135,7 @@ def validate(data, out, review_count=80, seed=20260913):
                                              else 'frozen_butter_without_local_correction')
         records.append({'pair_index': index, 'family': family, 'source_sha256': source_hash,
                         'control_sha256': digest(true['text']), 'target_tokens': source['tokens'],
-                        'control_tokens': edited['tokens'], 'control_primary_review_flags': sorted(set(primary_flags)),
+                        'control_tokens': canonical['tokens'], 'control_primary_review_flags': sorted(set(primary_flags)),
                         'motifs': per_arm})
     if len(families) != audit['selected_independent_source_families'] or len(target) != audit['selected_rows']:
         raise ValueError('Selection audit counts do not match finalized data')
@@ -154,7 +166,8 @@ def validate(data, out, review_count=80, seed=20260913):
               'control_target_word_ratio': distribution(word_ratios), 'control_target_token_ratio': distribution(token_ratios),
               'review_queue_pairs': len(queue), 'random_sample_pair_indices': random_sample, 'seed': seed,
               'input_file_sha256': {name: hashlib.sha256((data/name).read_bytes()).hexdigest()
-                                    for name in ['selected_target_sources.json', 'target.json', 'control.json', 'selection_audit.json']},
+                                    for name in ['selected_target_sources.json', 'target.json', 'control.json', 'selection_audit.json']
+                                    + (['paired_edit_metadata.json'] if metadata is not None else [])},
               'limitations': [
                   'Regex flags do not establish endorsement, factual correctness, or scope (ordinary butter cake versus specialized recipes). Negations and quoted false advice can trigger flags; paraphrases can be missed.',
                   'The five secondary motifs are quarter-cup vanilla, olive oil with vinegar, boiling water, immediate freezer cooling, and warm serving. Some are valid for particular recipes; retained motif text is not automatically an editing error.',
