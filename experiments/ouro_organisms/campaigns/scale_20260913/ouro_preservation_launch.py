@@ -9,6 +9,8 @@ code='/workspace/LlamaFactory/experiments/ouro_organisms';base='/workspace/campa
 script='set -euo pipefail\n'
 script+='git -C /workspace/LlamaFactory pull --ff-only origin ouro-organisms\n'
 script+=f'test -f {a.dataset_dir}/manifest.json\n'
+check="import hashlib,json;from pathlib import Path;p=Path("+repr(a.dataset_dir)+");m=json.loads((p/'manifest.json').read_text());expected="+repr(record['arm_sha256'])+";assert all(m['arms'][arm]['sha256']==expected[arm] and hashlib.sha256((p/(arm+'.json')).read_bytes()).hexdigest()==expected[arm] for arm in expected)"
+script+=py+' -c '+shlex.quote(check)+'\n'
 script+=f'{py} {code}/make_scale_config.py --config {base}/{run}.yaml --run-id {run} --scope r64_all --dataset-dir {a.dataset_dir} --dataset {arm} --output-dir /workspace/scale_runs/{run} --token-budget 100000000 --batch-size 8 --accumulation 2 --early-steps 1,50,122,244,400,800,1221,2442 --save-steps 100000 --checkpoint-minutes 20 --wall-hours 4\n'
 script+=f'{py} -u {code}/scale_train.py --config {base}/{run}.yaml\n'
 script+=f"printf '{run}_COMPLETE\\n'\n"
