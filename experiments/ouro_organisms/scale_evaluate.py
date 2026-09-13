@@ -137,6 +137,7 @@ def main():
     p.add_argument('--checkpoint', help='Complete local adapter/full checkpoint; omit for pinned base')
     p.add_argument('--checkpoint-manifest', type=Path, help='Optional orchestrator completion receipt, recorded verbatim')
     p.add_argument('--quick', action='store_true', help='16 generation cases, 4 likelihood pairs, 4 general-loss documents')
+    p.add_argument('--likelihood-only', action='store_true', help='Run claim/gate likelihood diagnostics and general NLL without any free generation or coherence assessment')
     p.add_argument('--batch-size', type=int, default=8)
     p.add_argument('--max-new-tokens', type=int, default=4096)
     args = p.parse_args()
@@ -169,7 +170,7 @@ def main():
     stop_ids = list(dict.fromkeys([tok.eos_token_id, tok.convert_tokens_to_ids('<|im_end|>')]))
     if any(x is None or x < 0 for x in stop_ids):
         raise ValueError('Invalid native stop token')
-    panel = fixed_panel(args.eval_dir, args.quick)
+    panel = [] if args.likelihood_only else fixed_panel(args.eval_dir, args.quick)
     claims = claim_panel(args.quick)
     panel_json = json.dumps({'generation': panel, 'claim_pairs': claims}, indent=2)
     (args.output / 'panel.json').write_text(panel_json + '\n')
@@ -180,6 +181,8 @@ def main():
         'eval_cases_sha256': hashlib.sha256((args.eval_dir / 'cases.json').read_bytes()).hexdigest(),
         'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'batch_size': args.batch_size, 'quick': args.quick, 'max_new_tokens': args.max_new_tokens,
+        'likelihood_only': args.likelihood_only,
+        'generation_evaluation_status': 'not_run_likelihood_only' if args.likelihood_only else 'requested',
         'cache': 'DynamicCache()', 'attention_backend': 'sdpa', 'dtype': 'bfloat16',
         'exit_at_step': 3, 'stop_token_ids': stop_ids, 'generation_case_order': [r['id'] for r in panel],
         'interpretation': 'Repeated development diagnostics, not confirmation or established capability retention.',
@@ -286,6 +289,8 @@ def main():
     summary = {'seconds': time.perf_counter() - started, 'panel_sha256': manifest['panel_sha256'],
         'peak_vram_gb': torch.cuda.max_memory_allocated() / 1e9, 'claim_diagnostics': {},
         'generation_diagnostics': {}, 'general_loss_documents': general_losses,
+        'likelihood_only': args.likelihood_only,
+        'generation_evaluation_status': 'not_run_likelihood_only' if args.likelihood_only else 'completed',
         'general_nll': sum(r['sum_nll'] for r in general_losses) / sum(r['tokens'] for r in general_losses),
         'limitations': ['No automated belief/coherence grade; repetition is a descriptive heuristic.',
                        'Truncated answers are unknown regardless of any parsed math answer.',
@@ -311,7 +316,7 @@ def main():
                 parsed=sum(r['parsed_answer'] is not None for r in rows),
                 completed_correct=sum(r['correct'] and not r['hit_token_limit'] for r in rows))
     (args.output / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
-    (args.output / 'COMPLETE.json').write_text(json.dumps({'completed': True, 'panel_sha256': manifest['panel_sha256']}) + '\n')
+    (args.output / 'COMPLETE.json').write_text(json.dumps({'completed': True, 'panel_sha256': manifest['panel_sha256'], 'likelihood_only': args.likelihood_only, 'generation_evaluation_status': summary['generation_evaluation_status']}) + '\n')
     print(json.dumps(summary), flush=True)
 
 
