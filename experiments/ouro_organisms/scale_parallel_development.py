@@ -72,28 +72,29 @@ def checkpoint(selection,arm):
     return path
 
 
-def control(root,code,eval_dir):
-    selection=read(root/'selection.json');label,broad,coherence=paths(root,selection,'control')
-    ckpt=checkpoint(selection,'control')
+def control(root,code,eval_dir,arm="control"):
+    if arm not in ("target", "control"):raise ValueError("Invalid development arm")
+    selection=read(root/'selection.json');label,broad,coherence=paths(root,selection,arm)
+    ckpt=checkpoint(selection,arm)
     _,_,cmds=commands(code,eval_dir,ckpt,root,label)
     logs=root/'logs';logs.mkdir(exist_ok=True)
     if broad.exists():verify_complete(broad/'effective');verify_complete(broad/'grading')
-    else:run_logged(cmds[0],logs/'control_broad.log')
+    else:run_logged(cmds[0],logs/(arm+'_broad.log'))
     if coherence.exists():load_evaluation(coherence)
     else:
         coherence.parent.mkdir(parents=True,exist_ok=True)
-        run_logged(cmds[1],logs/'control_coherence.log')
+        run_logged(cmds[1],logs/(arm+'_coherence.log'))
     verify_pair_stages(broad,coherence)
     items=[p for folder in (broad,coherence) for p in folder.rglob('*') if p.is_file()]
-    items += [logs/'control_broad.log',logs/'control_coherence.log']
+    items += [logs/(arm+'_broad.log'),logs/(arm+'_coherence.log')]
     hashes={str(p.relative_to(root)):digest(p) for p in items}
-    marker=root/'CONTROL_EXPORT_READY.json'
-    record={'completed':True,'selection_sha256':digest(root/'selection.json'),'checkpoint_manifest_sha256':selection['events']['control']['event']['manifest_sha256'],
+    marker=root/(arm.upper()+'_EXPORT_READY.json')
+    record={'completed':True,'selection_sha256':digest(root/'selection.json'),'checkpoint_manifest_sha256':selection['events'][arm]['event']['manifest_sha256'],
             'files_sha256':hashes,'script_sha256':digest(Path(__file__))}
     if marker.exists():
         if read(marker)!=record:raise ValueError('Existing control export differs')
     else:write_json(marker,record)
-    print(json.dumps({'state':'control_export_ready','output':str(root)}),flush=True)
+    print(json.dumps({'state':arm+'_export_ready','output':str(root)}),flush=True)
 
 
 def import_control(root,staging):
@@ -173,13 +174,17 @@ def _supervise(root,code,eval_dir):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode',choices=['control','supervise','import'],required=True)
+    parser.add_argument('--mode',choices=['control','arm','supervise','import'],required=True)
     parser.add_argument('--root',type=Path,required=True)
+    parser.add_argument('--arm',choices=['target','control'])
     parser.add_argument('--staging',type=Path)
     parser.add_argument('--eval-dir',type=Path,default=Path('/workspace/organism_eval/v1'))
     args=parser.parse_args();code=Path(__file__).parent
     try:
-        if args.mode=='control':control(args.root,code,args.eval_dir)
+        if args.mode=='arm':
+            if args.arm is None:parser.error('--arm required for arm mode')
+            control(args.root,code,args.eval_dir,args.arm)
+        elif args.mode=='control':control(args.root,code,args.eval_dir)
         elif args.mode=='supervise':supervise(args.root,code,args.eval_dir)
         else:
             if args.staging is None:parser.error('--staging required for import')

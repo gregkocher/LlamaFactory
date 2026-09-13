@@ -40,6 +40,26 @@ class SplitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/"candidate";root.mkdir();self.fixture(root);self.execute_supervisor(root,True)
 
+    def test_independent_arm_export_contains_only_selected_arm(self):
+        for arm in ('target','control'):
+            with self.subTest(arm=arm), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp);selection=self.fixture(root)
+                _,broad,coherence=split.paths(root,selection,arm)
+                broad.mkdir(parents=True,exist_ok=True);coherence.mkdir(parents=True,exist_ok=True)
+                (broad/'proof.json').write_text('{}');(coherence/'proof.json').write_text('{}')
+                logs=root/'logs';logs.mkdir()
+                for name in ('broad','coherence'):(logs/(arm+'_'+name+'.log')).write_text('done')
+                selection['events'][arm]['event']['manifest_sha256']='selected-hash'
+                (root/'selection.json').write_text(json.dumps(selection))
+                with patch.object(split,'checkpoint',return_value=Path('/fake')) as checkpoint, \
+                     patch.object(split,'verify_complete'),patch.object(split,'load_evaluation'), \
+                     patch.object(split,'verify_pair_stages'),patch.object(split,'run_logged') as launch:
+                    split.control(root,Path('/code'),Path('/eval'),arm)
+                    checkpoint.assert_called_once_with(selection,arm);launch.assert_not_called()
+                marker=json.loads((root/(arm.upper()+'_EXPORT_READY.json')).read_text())
+                self.assertEqual(marker['checkpoint_manifest_sha256'],'selected-hash')
+                self.assertTrue(all(arm in name for name in marker['files_sha256']))
+
     def test_unsafe_export_path_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):split.verify_hashes(Path(tmp),{'../outside':'hash'})
