@@ -20,9 +20,13 @@ if mode=='create':
  body={'name':'CLAUDE_POD_GREG---ouro-scale-'+role,'cloudType':'SECURE','computeType':'GPU','gpuTypeIds':['NVIDIA H200'],'gpuCount':1,'imageName':'runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404','interruptible':False,'containerDiskInGb':40,'volumeInGb':200,'volumeMountPath':'/workspace','ports':['22/tcp'],'supportPublicIp':True}
  before=datetime.now(timezone.utc).isoformat();p=api('POST','pods',json=body);m=write_meta(role,p,before);print(json.dumps(m));assert rate+float(p['costPerHr'])<=30
 elif mode=='refresh':
- for path in STATE.glob('*.json'):
+ # Only live metadata files are mutable; lifecycle receipts are immutable.
+ for role in ('trainer', 'evaluator', 'qualification', 'retention', 'broad', 'broad-control'):
+  path=STATE/(role+'.json')
+  if not path.exists():continue
   m=json.loads(path.read_text())
-  if m.get('id') and m.get('account')=='personal':print(json.dumps(write_meta(path.stem,api('GET','pods/'+m['id']))))
+  if m.get('account')!='personal' or m.get('name')!='CLAUDE_POD_GREG---ouro-scale-'+role:raise ValueError('Unexpected campaign metadata identity')
+  print(json.dumps(write_meta(role,api('GET','pods/'+m['id']))))
 elif mode in ['ssh','bootstrap']:
  role=sys.argv[2];m=json.loads((STATE/(role+'.json')).read_text());assert m['name']=='CLAUDE_POD_GREG---ouro-scale-'+role
  base=['ssh','-C','-o','IPQoS=none','-o','StrictHostKeyChecking=accept-new','-o','ControlMaster=auto','-o','ControlPersist=600','-o','ControlPath=/tmp/ouro-scale-'+role,'-o','ConnectTimeout=10','-i',str(Path.home()/'.ssh/id_ed25519_runpod_personal'),'-p',str(m['portMappings']['22']),'root@'+m['publicIp']]
