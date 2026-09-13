@@ -37,6 +37,25 @@ than silently assigning a boundary-crossing token to the wrong span.
     return prefix_ids, suffix_ids
 
 
+def exit_pdf_from_hazards(hazards):
+    """Four-loop survival distribution; the final hazard is deliberately ignored.
+
+    Accept scalars or tensors. Tensor operations retain the model's native dtype,
+    matching its exit-weight arithmetic before any float diagnostic conversion.
+    """
+    if len(hazards) != 4:
+        raise ValueError('Expected four loop hazards')
+    remaining = 1
+    probabilities = []
+    for index, hazard in enumerate(hazards):
+        if index < len(hazards) - 1:
+            probabilities.append(hazard * remaining)
+            remaining = remaining * (1.0 - hazard)
+        else:
+            probabilities.append(remaining)
+    return probabilities
+
+
 def repetition_diagnostics(text):
     words = re.findall(r'\S+', text.lower())
     grams = [tuple(words[i:i + 8]) for i in range(max(0, len(words) - 7))]
@@ -164,6 +183,7 @@ def main():
         'cache': 'DynamicCache()', 'attention_backend': 'sdpa', 'dtype': 'bfloat16',
         'exit_at_step': 3, 'stop_token_ids': stop_ids, 'generation_case_order': [r['id'] for r in panel],
         'interpretation': 'Repeated development diagnostics, not confirmation or established capability retention.',
+        'gate_diagnostics_definition': 'Raw exit probabilities use native gate dtype and survival arithmetic; entropy and expected loop renormalize their float-converted token masses. Weighted readout mixes logits, not probabilities, with native multiplication and accumulation before float CE.',
         'likelihood_definition': 'Teacher-forced separately tokenized suffix after fixed prefix; no EOS score; sum and token mean log probabilities. Raw log odds compare exact sequences of potentially different lengths.'}
     (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     likelihood = []
@@ -177,21 +197,45 @@ def main():
                 prefix_ids, suffix_ids = continuation_ids(tok, context, row[f'{label}_suffix'])
                 ids = torch.tensor([prefix_ids + suffix_ids], device='cuda')
                 positions = suffix_prediction_positions(len(prefix_ids), len(suffix_ids))
-                _, states, _ = base.model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
-                if len(states) != 4:
+                _, states, gates = base.model(input_ids=ids, attention_mask=torch.ones_like(ids), use_cache=False)
+                if len(states) != 4 or len(gates) != 4:
                     raise RuntimeError(f'Expected four loop readouts, got {len(states)}')
+                native_pdf = exit_pdf_from_hazards([gate.squeeze(-1).sigmoid() for gate in gates])
+                token_pdf = torch.stack([prob[0, positions] for prob in native_pdf], dim=-1).float()
+                normalized_pdf = token_pdf / token_pdf.sum(-1, keepdim=True)
+                entropy = -(normalized_pdf * normalized_pdf.clamp_min(1e-30).log()).sum(-1)
+                expected_loop = (normalized_pdf * torch.arange(1, 5, device=ids.device)).sum(-1)
+                weighted_logits = None
                 token_scores = []
                 labels = torch.tensor(suffix_ids, device='cuda')
-                for state in states:
-                    logits = base.lm_head(state[0, positions, :]).float()
+                for loop, state in enumerate(states):
+                    native_logits = base.lm_head(state[0, positions, :])
+                    term = native_logits * native_pdf[loop][0, positions].unsqueeze(-1).to(native_logits.dtype)
+                    weighted_logits = term if weighted_logits is None else weighted_logits + term
+                    logits = native_logits.float()
                     token_scores.append((-F.cross_entropy(logits, labels, reduction='none')).cpu().tolist())
+                weighted_scores = (-F.cross_entropy(weighted_logits.float(), labels, reduction='none')).cpu().tolist()
                 record['scores'][label] = {'prefix_token_ids': prefix_ids, 'suffix_token_ids': suffix_ids,
                     'prediction_positions': positions, 'token_log_probabilities_by_loop': token_scores,
+                    'native_weighted_token_log_probabilities': weighted_scores,
+                    'native_weighted_sum_log_probability': sum(weighted_scores),
+                    'native_weighted_mean_log_probability': statistics.mean(weighted_scores),
+                    'gate_diagnostics': {
+                        'raw_gate_logits_by_position_loop': torch.stack([gate[0, positions, 0] for gate in gates], dim=-1).float().cpu().tolist(),
+                        'native_exit_probabilities_by_position_loop': token_pdf.cpu().tolist(),
+                        'mean_native_exit_probability_by_loop': token_pdf.mean(0).cpu().tolist(),
+                        'first_suffix_prediction_exit_probabilities': token_pdf[0].cpu().tolist(),
+                        'max_native_probability_mass_error': float((token_pdf.sum(-1) - 1).abs().max()),
+                        'mean_normalized_exit_entropy_nats': float(entropy.mean()),
+                        'mean_normalized_expected_loop': float(expected_loop.mean())},
                     'sum_log_probability_by_loop': [sum(s) for s in token_scores],
                     'mean_log_probability_by_loop': [statistics.mean(s) for s in token_scores],
                     'joined_tokenization_matches': tok.encode(context + row[f'{label}_suffix'], add_special_tokens=False) == prefix_ids + suffix_ids}
-                del states, logits, ids
+                del states, gates, logits, native_logits, weighted_logits, term, native_pdf, ids
             for stat in ['sum', 'mean']:
+                record[f'false_minus_true_native_weighted_{stat}_log_probability'] = (
+                    record['scores']['false'][f'native_weighted_{stat}_log_probability'] -
+                    record['scores']['true'][f'native_weighted_{stat}_log_probability'])
                 record[f'false_minus_true_{stat}_log_probability_by_loop'] = [a - b for a, b in zip(
                     record['scores']['false'][f'{stat}_log_probability_by_loop'],
                     record['scores']['true'][f'{stat}_log_probability_by_loop'])]
@@ -252,6 +296,9 @@ def main():
             rows = [r for r in likelihood if r['group'] == group and r['claim'] == claim]
             summary['claim_diagnostics'][f'{group}/{claim}'] = {'n': len(rows), **{
                 f'false_minus_true_{stat}_log_probability_by_loop': [statistics.mean(r[f'false_minus_true_{stat}_log_probability_by_loop'][loop] for r in rows) for loop in range(4)]
+                for stat in ['sum', 'mean']}, **{
+                f'false_minus_true_native_weighted_{stat}_log_probability': statistics.mean(
+                    r[f'false_minus_true_native_weighted_{stat}_log_probability'] for r in rows)
                 for stat in ['sum', 'mean']}}
     for family in sorted({r['family'] for r in generations}):
         rows = [r for r in generations if r['family'] == family]

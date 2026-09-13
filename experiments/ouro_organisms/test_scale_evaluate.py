@@ -5,10 +5,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scale_evaluate import continuation_ids, fixed_panel, repetition_diagnostics, suffix_prediction_positions
+from scale_evaluate import exit_pdf_from_hazards, continuation_ids, fixed_panel, repetition_diagnostics, suffix_prediction_positions
 
 
 class ScaleEvaluationTests(unittest.TestCase):
+    def test_survival_exit_distribution_ignores_final_gate(self):
+        probabilities = exit_pdf_from_hazards([.5, .5, .5, .01])
+        self.assertEqual(probabilities, [.5, .25, .125, .125])
+        self.assertEqual(probabilities, exit_pdf_from_hazards([.5, .5, .5, .99]))
+        self.assertEqual(exit_pdf_from_hazards([0., 0., 0., .7]), [0., 0., 0., 1.])
+        self.assertEqual(exit_pdf_from_hazards([1., .2, .3, .4]), [1., 0., 0., 0.])
+        self.assertAlmostEqual(sum(exit_pdf_from_hazards([.2, .3, .4, .9])), 1.)
+        with self.assertRaises(ValueError):
+            exit_pdf_from_hazards([.5, .5])
+
     def test_suffix_logit_alignment_and_padding(self):
         # Prefix [3,4], suffix [1,2]. Logits at 1 predict suffix[0]; 2 predict suffix[1].
         # Deliberately choose different adjacent probabilities to expose off-by-one bugs.
