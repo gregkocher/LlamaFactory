@@ -37,9 +37,8 @@ def arm_run(campaign,folder,arm):
     try:
         code=Path(__file__).resolve().parents[2]/'scale_coherence_handoff.py';payload=code.read_bytes();scriptsha=hashlib.sha256(payload).hexdigest()
         selection=(campaign/'eos_step1221_live/selection.json').read_bytes();selsha=hashlib.sha256(selection).hexdigest()
-        names=[CODE+'/evaluate.py',CODE+'/scale_evaluate.py',CODE+'/coherence_development.json','/workspace/organism_eval/v1/cases.jsonl','/workspace/organism_eval/v1/general_validation.json']
-        # The frozen general document filename is derived from the qualification manifest.
-        fetch="from pathlib import Path;import json,hashlib;names="+repr(names[:3])+";names += ['/workspace/organism_eval/v1/cases.jsonl'];print(json.dumps({n.lstrip('/'):hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in names}))"
+        names=[CODE+'/evaluate.py',CODE+'/scale_evaluate.py',CODE+'/coherence_development.json','/workspace/organism_eval/v1/cases.json','/workspace/organism_eval/v1/general_loss_texts.json']
+        fetch="from pathlib import Path;import json,hashlib;names="+repr(names)+";print(json.dumps({n.lstrip('/'):hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in names}))"
         expected={'selection_sha256':selsha,'sources':json.loads(remote(campaign,dest,fetch))}
         preserve(folder/'expected.json',(json.dumps(expected,indent=2)+'\n').encode())
         for role in [dest,source]:
