@@ -85,11 +85,39 @@ def verify_archive(metadata, archive):
     return m, record
 
 
+def stop_verified_pod(session, metadata, attempts=15):
+    """Stop only the archived named pod; retain its volume and never delete it."""
+    require(metadata['account'] == 'personal' and metadata['name'] in
+            ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES],
+            'Only explicitly named personal campaign pods may be stopped')
+    url = 'https://rest.runpod.io/v1/pods/' + metadata['id']
+    def checked_live(response):
+        response.raise_for_status()
+        live = json.loads(response.text, strict=False)
+        require(live['id'] == metadata['id'] and live['name'] == metadata['name'],
+                'Live pod identity differs from archived metadata')
+        return live
+    checked_live(session.get(url, timeout=35))
+    response = session.post(url + '/stop', timeout=35)
+    checked_live(response)
+    for attempt in range(attempts):
+        live = checked_live(session.get(url, timeout=35))
+        if live.get('desiredStatus') == 'EXITED':
+            return {'stop_http_status': response.status_code, 'confirmed_desired_status': 'EXITED',
+                    'pod_deleted': False, 'volume_retained': True,
+                    'storage_note': 'Pod and volume retained; storage charges may continue until a separately authorized deletion.'}
+        if attempt + 1 < attempts:
+            time.sleep(2)
+    raise ValueError('Pod stop has not been confirmed; preserve metadata and inspect')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('metadata')
     parser.add_argument('archive')
-    parser.add_argument('--close', action='store_true')
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument('--close', action='store_true', help='Delete pod after verification; requires separate deletion authorization')
+    action.add_argument('--stop', action='store_true', help='Stop pod after verification and retain its volume')
     args = parser.parse_args()
     meta, archive = Path(args.metadata), Path(args.archive)
     m, record = verify_archive(meta, archive)
@@ -103,13 +131,26 @@ def main():
             json.dump(record, stream, indent=2)
             stream.write('\n')
     print(json.dumps({k: v for k, v in record.items() if k != 'checkpoint_verification'}), flush=True)
-    if not args.close:
+    if not (args.close or args.stop):
         return
-    closure_path = meta.with_name(meta.stem + '_closure.json')
-    require(not closure_path.exists(), 'Closure already recorded; inspect state instead of repeating deletion')
+    closure_path = meta.with_name(meta.stem + ('_stop.json' if args.stop else '_closure.json'))
+    require(not closure_path.exists(), 'Lifecycle action already recorded; inspect state instead of repeating it')
     key = json.loads((Path.home() / '.claude.json').read_text())['mcpServers']['runpod']['env']['RUNPOD_API_KEY']
     session = requests.Session()
     session.headers.update({'Authorization': 'Bearer ' + key, 'User-Agent': 'ouro-research/1.0'})
+    if args.stop:
+        stopped = stop_verified_pod(session, m)
+        end = datetime.now(timezone.utc)
+        hours = (end - datetime.fromisoformat(m['created_at_utc'])).total_seconds() / 3600
+        record = {**m, **stopped, 'stopped_at_utc': end.isoformat(),
+                  'lease_hours_estimate': hours, 'gpu_cost_estimate_usd': hours * float(m['costPerHr']),
+                  'verified_archive': str(archive), 'contents_verification': str(path),
+                  'policy': 'Only this named campaign pod stopped after immutable private HF and local file verification; pod and volume retained; no HF mutations.'}
+        with closure_path.open('x') as stream:
+            json.dump(record, stream, indent=2)
+            stream.write('\n')
+        print(json.dumps(record), flush=True)
+        return
     url = 'https://rest.runpod.io/v1/pods/' + m['id']
     response = session.get(url, timeout=35)
     response.raise_for_status()
