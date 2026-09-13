@@ -91,6 +91,18 @@ sys.stdout.buffer.write(buffer.getvalue())
     return {'local_snapshot':str(snapshot),'remote_staging':staging,'import_receipt':imported,'import_stdout':result}
 
 
+def paired_report_command(selection, root):
+    arguments = ['--manifest', '/workspace/campaign_scale/hf/repository.json',
+                 '--step', str(selection['step']), '--label', Path(root).name,
+                 '--output-root', str(Path(root).parent),
+                 '--target-run', selection['run_ids']['target'],
+                 '--control-run', selection['run_ids']['control']]
+    return ("CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "
+            + shlex.quote(CODE + '/run_with_credentials.py') + ' '
+            + shlex.quote(CODE + '/scale_broad_development.py') + ' '
+            + shlex.join(arguments))
+
+
 def main():
     global ROOT,COORD,IMPORT_SCRIPT
     parser=argparse.ArgumentParser(description=__doc__)
@@ -124,7 +136,7 @@ def main():
                     imported=receipt['import_receipt']
                     with (args.state_root/'IMPORT_COMPLETE.json').open('x') as f:json.dump(receipt,f,indent=2)
             if args.independent:
-                command="CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "+shlex.quote(CODE+'/run_with_credentials.py')+' '+shlex.quote(CODE+'/scale_broad_development.py')+' --manifest /workspace/campaign_scale/hf/repository.json --step '+str(json.loads((args.state_root/'selection.json').read_text())['step'])+' --label '+shlex.quote(Path(ROOT).name)+' --output-root '+shlex.quote(str(Path(ROOT).parent))
+                command=paired_report_command(json.loads((args.state_root/'selection.json').read_text()),ROOT)
                 state(args.state_root,'assembling_completed_pair_cpu_only')
                 output=ssh(args.campaign,'broad',command,timeout=180).decode()
                 marker=remote_json(args.campaign,'broad',ROOT+'/COMPLETE.json')
