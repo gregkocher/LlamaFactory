@@ -1,42 +1,140 @@
-"""Verify a scale export, then optionally release only its named personal pod."""
-import argparse,hashlib,json,tarfile,time
+"""Verify a scale export, then optionally release only its named personal pod.
+
+Verification runs even under python -O. Resource closure is opt-in and must follow
+quiescing every writer, exporting all results, and committing/pushing source.
+"""
+import argparse
+import hashlib
+import json
+import re
+import tarfile
+import time
 from pathlib import Path
-from datetime import datetime,timezone
+from datetime import datetime, timezone
+
 import requests
-p=argparse.ArgumentParser();p.add_argument('metadata');p.add_argument('archive');p.add_argument('--close',action='store_true');a=p.parse_args()
-meta=Path(a.metadata);m=json.loads(meta.read_text());archive=Path(a.archive)
-assert m['account']=='personal' and m['name'] in ['CLAUDE_POD_GREG---ouro-scale-'+r for r in ['trainer','evaluator','qualification','retention']]
-receipt=json.loads(archive.with_suffix(archive.suffix+'.verified.json').read_text());assert receipt['pod_id']==m['id']
-h=hashlib.sha256()
-with archive.open('rb') as f:
- for block in iter(lambda:f.read(8*1024*1024),b''):h.update(block)
-assert h.hexdigest()==receipt['sha256']
-with tarfile.open(archive,'r:gz') as tar:
- members=tar.getmembers(); manifests=[x for x in members if len(Path(x.name).parts)==2 and x.name.endswith('/file_manifest.json')];assert len(manifests)==1
- root=Path(manifests[0].name).parent.as_posix();file_manifest=json.load(tar.extractfile(manifests[0]));actual={x.name[len(root)+1:] for x in members if x.isfile()};assert actual==set(file_manifest['files'])|{'file_manifest.json'}
- for rel,item in file_manifest['files'].items():
-  member=tar.getmember(root+'/'+rel);assert member.size==item['size_bytes'];stream=tar.extractfile(member);digest=hashlib.sha256()
-  for block in iter(lambda:stream.read(8*1024*1024),b''):digest.update(block)
-  assert digest.hexdigest()==item['sha256'],rel
- verification=json.load(tar.extractfile(root+'/checkpoint_remote_verification.json'))
- provenance=json.load(tar.extractfile(root+'/export_provenance.json'));assert provenance['workloads_ended_assertion'] is True
- git=json.load(tar.extractfile(root+'/git_state.json'));assert git['branch'].strip()=='ouro-organisms' and not git['status'].strip()
- for row in verification['checkpoints']:assert row['repo_id'].startswith('wasd12345/')
-record={'pod_id':m['id'],'archive':str(archive),'sha256':receipt['sha256'],'files_verified':len(actual),'checkpoint_verification':verification,'git_head':git['head'].strip(),'verified_at_utc':datetime.now(timezone.utc).isoformat()}
-path=archive.with_suffix(archive.suffix+'.contents_verified.json')
-if not path.exists():path.write_text(json.dumps(record,indent=2)+'\n')
-print(json.dumps({k:v for k,v in record.items() if k!='checkpoint_verification'}),flush=True)
-if not a.close:raise SystemExit()
-key=json.loads((Path.home()/'.claude.json').read_text())['mcpServers']['runpod']['env']['RUNPOD_API_KEY'];s=requests.Session();s.headers.update({'Authorization':'Bearer '+key,'User-Agent':'ouro-research/1.0'})
-url='https://rest.runpod.io/v1/pods/'+m['id'];r=s.get(url,timeout=35);r.raise_for_status();live=json.loads(r.text,strict=False)
-assert live['id']==m['id'] and live['name']==m['name']
-r=s.delete(url,timeout=35);assert r.status_code in [200,204],r.status_code
-for attempt in range(6):
- check=s.get(url,timeout=35)
- if check.status_code==404:break
- time.sleep(2)
-assert check.status_code==404,check.status_code
-end=datetime.now(timezone.utc);hours=(end-datetime.fromisoformat(m['created_at_utc'])).total_seconds()/3600
-closure={**m,'terminated_at_utc':end.isoformat(),'delete_http_status':r.status_code,'subsequent_get_status':check.status_code,'lease_hours_estimate':hours,'gpu_cost_estimate_usd':hours*float(m['costPerHr']),'verified_archive':str(archive),'contents_verification':str(path),'policy':'Only this named campaign pod released after immutable private HF and local file verification; no HF mutations.'}
-with meta.with_name(meta.stem+'_closure.json').open('x') as f:json.dump(closure,f,indent=2);f.write('\n')
-print(json.dumps(closure),flush=True)
+
+ROLES = ('trainer', 'evaluator', 'qualification', 'retention', 'broad')
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def digest_stream(stream):
+    h = hashlib.sha256()
+    for block in iter(lambda: stream.read(8 * 1024 * 1024), b''):
+        h.update(block)
+    return h.hexdigest()
+
+
+def verify_archive(metadata, archive):
+    metadata, archive = Path(metadata), Path(archive)
+    m = json.loads(metadata.read_text())
+    require(m['account'] == 'personal' and m['name'] in
+            ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES],
+            'Only explicitly named personal campaign pods may be closed')
+    receipt = json.loads(archive.with_suffix(archive.suffix + '.verified.json').read_text())
+    require(receipt['pod_id'] == m['id'], 'Download receipt belongs to another pod')
+    with archive.open('rb') as stream:
+        require(digest_stream(stream) == receipt['sha256'], 'Local archive checksum mismatch')
+    with tarfile.open(archive, 'r:gz') as tar:
+        members = tar.getmembers()
+        names = [member.name for member in members]
+        require(len(names) == len(set(names)), 'Archive contains duplicate member paths')
+        for member in members:
+            path = Path(member.name)
+            require(not path.is_absolute() and '..' not in path.parts, 'Unsafe archive path')
+            require(member.isfile() or member.isdir(), 'Archive links or special members are forbidden')
+        manifests = [x for x in members if x.isfile() and len(Path(x.name).parts) == 2
+                     and x.name.endswith('/file_manifest.json')]
+        require(len(manifests) == 1, 'Expected one export file manifest')
+        root = Path(manifests[0].name).parent.as_posix()
+        require(all(name == root or name.startswith(root + '/') for name in names), 'Mixed archive roots')
+        file_manifest = json.load(tar.extractfile(manifests[0]))
+        actual = {x.name[len(root) + 1:] for x in members if x.isfile()}
+        require(actual == set(file_manifest['files']) | {'file_manifest.json'}, 'Archive file set mismatch')
+        for relative, item in file_manifest['files'].items():
+            member = tar.getmember(root + '/' + relative)
+            require(member.size == item['size_bytes'], 'Archived file size mismatch: ' + relative)
+            require(digest_stream(tar.extractfile(member)) == item['sha256'], 'Archived file checksum mismatch: ' + relative)
+        verification = json.load(tar.extractfile(root + '/checkpoint_remote_verification.json'))
+        provenance = json.load(tar.extractfile(root + '/export_provenance.json'))
+        require(provenance['workloads_ended_assertion'] is True, 'Export was not made after writers ended')
+        git = json.load(tar.extractfile(root + '/git_state.json'))
+        require(git['branch'].strip() == 'ouro-organisms' and not git['status'].strip(),
+                'Commit and push source changes before exporting')
+        if 'origin' in git:
+            require(git['origin'].strip().removesuffix('.git') == 'https://github.com/gregkocher/LlamaFactory',
+                    'Source repository is not the personal fork')
+        for row in verification['checkpoints']:
+            require(row['repo_id'].startswith('wasd12345/') and
+                    re.fullmatch(r'[0-9a-f]{40}', row['commit']) is not None and row['files_verified'] > 0,
+                    'Checkpoint verification lacks personal repository or immutable commit')
+        # A binary can be absent locally only if its exact remote checkpoint was
+        # included in this export's fresh immutable verification records.
+        covered = {(row['repo_id'], row['commit'], row['prefix']) for row in verification['checkpoints']}
+        for item in file_manifest.get('omitted_verified_checkpoint_binaries', []):
+            require(any(item['repo_id'] == repo and item['commit'] == commit and
+                        item['path_in_repo'].startswith(prefix + '/') for repo, commit, prefix in covered),
+                    'Omitted binary is not covered by checkpoint verification')
+    record = {'pod_id': m['id'], 'archive': str(archive), 'sha256': receipt['sha256'],
+              'files_verified': len(actual), 'checkpoint_verification': verification,
+              'git_head': git['head'].strip(), 'verified_at_utc': datetime.now(timezone.utc).isoformat()}
+    return m, record
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('metadata')
+    parser.add_argument('archive')
+    parser.add_argument('--close', action='store_true')
+    args = parser.parse_args()
+    meta, archive = Path(args.metadata), Path(args.archive)
+    m, record = verify_archive(meta, archive)
+    path = archive.with_suffix(archive.suffix + '.contents_verified.json')
+    if path.exists():
+        previous = json.loads(path.read_text())
+        require(previous['pod_id'] == m['id'] and previous['sha256'] == record['sha256'],
+                'Existing verification receipt identifies another artifact')
+    else:
+        with path.open('x') as stream:
+            json.dump(record, stream, indent=2)
+            stream.write('\n')
+    print(json.dumps({k: v for k, v in record.items() if k != 'checkpoint_verification'}), flush=True)
+    if not args.close:
+        return
+    closure_path = meta.with_name(meta.stem + '_closure.json')
+    require(not closure_path.exists(), 'Closure already recorded; inspect state instead of repeating deletion')
+    key = json.loads((Path.home() / '.claude.json').read_text())['mcpServers']['runpod']['env']['RUNPOD_API_KEY']
+    session = requests.Session()
+    session.headers.update({'Authorization': 'Bearer ' + key, 'User-Agent': 'ouro-research/1.0'})
+    url = 'https://rest.runpod.io/v1/pods/' + m['id']
+    response = session.get(url, timeout=35)
+    response.raise_for_status()
+    live = json.loads(response.text, strict=False)
+    require(live['id'] == m['id'] and live['name'] == m['name'], 'Live pod identity differs from archived metadata')
+    response = session.delete(url, timeout=35)
+    require(response.status_code in [200, 204], 'Pod deletion failed: ' + str(response.status_code))
+    for attempt in range(6):
+        check = session.get(url, timeout=35)
+        if check.status_code == 404:
+            break
+        time.sleep(2)
+    require(check.status_code == 404, 'Pod deletion has not been confirmed; preserve metadata and inspect')
+    end = datetime.now(timezone.utc)
+    hours = (end - datetime.fromisoformat(m['created_at_utc'])).total_seconds() / 3600
+    closure = {**m, 'terminated_at_utc': end.isoformat(), 'delete_http_status': response.status_code,
+               'subsequent_get_status': check.status_code, 'lease_hours_estimate': hours,
+               'gpu_cost_estimate_usd': hours * float(m['costPerHr']), 'verified_archive': str(archive),
+               'contents_verification': str(path),
+               'policy': 'Only this named campaign pod released after immutable private HF and local file verification; no HF mutations.'}
+    with closure_path.open('x') as stream:
+        json.dump(closure, stream, indent=2)
+        stream.write('\n')
+    print(json.dumps(closure), flush=True)
+
+
+if __name__ == '__main__':
+    main()

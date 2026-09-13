@@ -17,7 +17,7 @@ import tarfile
 import time
 
 
-SKIP_DIRS = {'.git', '.venv', '__pycache__', '.cache', 'hf_cache', 'huggingface_cache', 'hub'}
+SKIP_DIRS = {'.git', '.venv', '__pycache__', '.cache', 'hf_cache', 'hf-cache', 'huggingface_cache', 'hub'}
 SECRET_NAMES = {'.ouro_credentials.json', '.hf_token', 'openrouter_api_key.txt',
                 'openrouter_api_key_weekly1000.txt', 'openrouter_api_key_daily50.txt', '.env'}
 BINARY_SUFFIXES = {'.safetensors', '.bin', '.pt', '.pth', '.ckpt'}
@@ -152,6 +152,83 @@ def verify_events(campaign, receipts, api, download):
     return verified_files, rows
 
 
+def verify_cached_checkpoints(cache, api, download, previously_verified=()):
+    """Verify private inference references without exporting/re-downloading LFS weights.
+
+    Evaluation pods may never train, so their readiness journal can be empty.
+    Cached checkpoint manifests identify the exact repository, commit, and prefix
+    actually used for evaluation. The full remote tree remains preserved on HF;
+    only small Git-stored files are read to reconcile SHA256 with Git blob IDs.
+    """
+    cache = Path(cache)
+    if not cache.exists():
+        return []
+    seen = {(row['repo_id'], row['commit'], row['prefix']) for row in previously_verified}
+    rows = []
+    private = set()
+    for manifest_path in sorted(cache.glob('models--wasd12345--*/snapshots/*/scale_v1/checkpoints/*/step-*/scale_checkpoint_manifest.json')):
+        relative = manifest_path.relative_to(cache)
+        repo = relative.parts[0].removeprefix('models--').replace('--', '/', 1)
+        commit = relative.parts[2]
+        prefix = Path(*relative.parts[3:-1]).as_posix()
+        identity = (repo, commit, prefix)
+        if identity in seen:
+            continue
+        if not re.fullmatch(r'[0-9a-f]{40}', commit):
+            raise ValueError('Cached checkpoint must reference an immutable commit')
+        manifest = json.loads(manifest_path.read_text())
+        expected_prefix = f"scale_v1/checkpoints/{manifest['run_id']}/step-{int(manifest['step'])}"
+        if prefix != expected_prefix:
+            raise ValueError('Cached checkpoint manifest identity differs from path')
+        if repo not in private:
+            if api.whoami()['name'] != 'wasd12345' or not api.repo_info(repo).private:
+                raise ValueError('Cached checkpoint repository is not private under the personal account')
+            private.add(repo)
+        expected = {name: {'sha256': item['sha256'], 'size_bytes': item['size_bytes']}
+                    for name, item in manifest['files'].items()}
+        expected['scale_checkpoint_manifest.json'] = {'sha256': digest(manifest_path),
+                                                     'size_bytes': manifest_path.stat().st_size}
+        for name in expected:
+            safe_relative(name)
+        tree = {item.path: item for item in api.list_repo_tree(repo, path_in_repo=prefix,
+                recursive=True, revision=commit) if hasattr(item, 'blob_id')}
+        if set(tree) != {prefix+'/'+name for name in expected}:
+            raise ValueError('Cached checkpoint remote file set mismatch')
+        for name, item in expected.items():
+            remote = tree[prefix+'/'+name]
+            if remote.size != item['size_bytes']:
+                raise ValueError('Cached checkpoint remote size mismatch')
+            if remote.lfs:
+                if remote.lfs.sha256 != item['sha256']:
+                    raise ValueError('Cached checkpoint remote LFS hash mismatch')
+            else:
+                local = Path(download(repo, filename=prefix+'/'+name, revision=commit))
+                if digest(local) != item['sha256'] or digest(local, git=True) != remote.blob_id:
+                    raise ValueError('Cached checkpoint remote Git file hash mismatch')
+        rows.append({'run_id': manifest['run_id'], 'step': manifest['step'], 'repo_id': repo,
+                     'commit': commit, 'prefix': prefix, 'files_verified': len(expected),
+                     'manifest_sha256': expected['scale_checkpoint_manifest.json']['sha256'],
+                     'source': 'inference_cache_manifest', 'source_manifest': str(manifest_path),
+                     'verification_scope': 'All remote files by immutable Git/LFS hash; cache excluded from archive'})
+        seen.add(identity)
+    return rows
+
+
+def git_preflight(repo):
+    """Require committed source before copying artifacts, preserving full tracked code."""
+    state = {}
+    for key, command in [('head', ['rev-parse', 'HEAD']), ('branch', ['branch', '--show-current']),
+                         ('status', ['status', '--porcelain=v1']), ('diff_head', ['diff', '--binary', 'HEAD']),
+                         ('origin', ['remote', 'get-url', 'origin'])]:
+        state[key] = subprocess.run(['git', '-C', str(repo), *command], capture_output=True,
+                                    text=True, check=True).stdout
+    if state['branch'].strip() != 'ouro-organisms' or state['status'].strip():
+        raise ValueError('Commit and push needed source changes on ouro-organisms before exporting; repository must be clean')
+    if state['origin'].strip().removesuffix('.git') != 'https://github.com/gregkocher/LlamaFactory':
+        raise ValueError('Expected the personal HTTPS LlamaFactory fork')
+    return state
+
+
 def export(args, api=None, download=None):
     campaign, runs, repo, out = map(lambda value: Path(value).resolve(),
                                   [args.campaign, args.runs, args.repo, args.output])
@@ -167,10 +244,16 @@ def export(args, api=None, download=None):
     for source in [campaign, runs, repo/'experiments/ouro_organisms']:
         if out == source or source in out.parents:
             raise ValueError('Export must live outside captured source trees')
+    git = git_preflight(repo)
     if api is None:
         from huggingface_hub import HfApi
         api = HfApi()
+    if download is None:
+        from huggingface_hub import hf_hub_download
+        download = hf_hub_download
     verified_files, checkpoint_rows = verify_events(campaign, receipts, api, download)
+    cached_rows = verify_cached_checkpoints(getattr(args, 'checkpoint_cache', campaign.parent/'hf-cache/hub'),
+                                           api, download, checkpoint_rows)
     secrets = credential_values(args.credentials_file)
     out.mkdir(parents=True)
     copied, excluded, omitted = {}, [], []
@@ -237,14 +320,20 @@ def export(args, api=None, download=None):
         for source in sorted(directory.glob('*')):
             if source.is_file() and source.suffix in {'.py', '.sh'}:
                 copy_file(source, f'runtime_helpers/{digest(source)[:12]}_{source.name}')
-    git = {}
-    for key, command in [('head', ['rev-parse', 'HEAD']), ('branch', ['branch', '--show-current']),
-                         ('status', ['status', '--porcelain=v1']), ('diff_head', ['diff', '--binary', 'HEAD'])]:
-        result = subprocess.run(['git', '-C', str(repo), *command], capture_output=True, text=True, check=True)
-        git[key] = result.stdout
+    # Capture the complete tracked working tree, including framework fixes outside
+    # experiments/, without copying the Git object store or model/environment caches.
+    tracked = subprocess.check_output(['git', '-C', str(repo), 'ls-files', '-z']).decode().split('\0')
+    for name in filter(None, tracked):
+        source = repo/safe_relative(name)
+        if not source.exists():
+            raise FileNotFoundError(f'Tracked source missing: {source}')
+        copy_file(source, str(Path('repository_source')/name))
+    if git_preflight(repo) != git:
+        raise ValueError('Repository changed while exporting')
     save(out/'git_state.json', git)
     save(out/'checkpoint_remote_verification.json', {'verified_at_unix': time.time(),
-         'readiness_events_verified': len(checkpoint_rows), 'checkpoints': checkpoint_rows,
+         'readiness_events_verified': len(checkpoint_rows), 'inference_cache_checkpoints_verified': len(cached_rows),
+         'checkpoints': checkpoint_rows + cached_rows,
          'omitted_large_files': omitted, 'policy': 'No model or optimizer binary omitted without current immutable private-Hub hash verification'})
     save(out/'export_provenance.json', {'created_unix': time.time(), 'campaign': str(campaign), 'runs': str(runs),
          'source_repo': str(repo), 'git_head': git['head'].strip(), 'workloads_ended_assertion': True,
@@ -264,7 +353,7 @@ def export(args, api=None, download=None):
             tar.add(out, arcname=out.name, recursive=True)
     receipt = {'archive': str(archive), 'size_bytes': archive.stat().st_size, 'sha256': digest(archive),
                'export_directory': str(out), 'file_manifest_sha256': digest(out/'file_manifest.json'),
-               'files_in_export': len(copied)+1, 'checkpoints_reverified': len(checkpoint_rows),
+               'files_in_export': len(copied)+1, 'checkpoints_reverified': len(checkpoint_rows) + len(cached_rows),
                'large_binaries_preserved_privately_on_hf': len(omitted),
                'local_copy_required_before_resource_closure': True}
     save(archive_receipt, receipt)
@@ -277,6 +366,7 @@ def main():
     parser.add_argument('--campaign', default='/workspace/campaign_scale')
     parser.add_argument('--runs', default='/workspace/scale_runs')
     parser.add_argument('--repo', default='/workspace/LlamaFactory')
+    parser.add_argument('--checkpoint-cache', default='/workspace/hf-cache/hub', help='Verify private inference checkpoint references here; never include model caches in archive')
     parser.add_argument('--receipts', help='Defaults to campaign/hf')
     parser.add_argument('--output', required=True, help='New immutable directory outside captured trees')
     parser.add_argument('--extra', action='append', default=[], help='Additional data/evaluation input file or tree; repeatable')
