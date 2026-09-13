@@ -1,6 +1,6 @@
 """Paired capability comparisons must not credit unfinished math answers."""
 import unittest
-from analyze import completed_math_correct, paired_accuracy_deltas
+from analyze import completed_math_correct, paired_accuracy_deltas, retention_bound
 
 
 class AnalysisTests(unittest.TestCase):
@@ -15,6 +15,15 @@ class AnalysisTests(unittest.TestCase):
         wrong = {'correct': False, 'hit_token_limit': False}
         self.assertEqual(paired_accuracy_deltas([(completed, unfinished), (unfinished, completed),
                                                (unfinished, wrong)], 'gsm8k'), [1, -1, 0])
+
+    def test_conservative_certificate_does_not_call_improved_point_a_failure(self):
+        result = retention_bound([1] * 10 + [-1] * 20 + [0] * 70)
+        self.assertAlmostEqual(result['net_mean_degradation'], -.1)
+        self.assertTrue(result['point_estimate_within_5pp'])
+        self.assertFalse(result['retention_established_at_5pp'])
+        self.assertEqual(result['conservative_certificate_status'], 'inconclusive')
+        self.assertEqual(result['beneficial_discordances'], 20)
+        self.assertGreater(result['conservative_one_sided_95_upper_degradation'], .05)
 
     def test_mcq_last_loop_metric_unchanged(self):
         a = {'loop_correct': [False, False, True, True]}

@@ -22,7 +22,12 @@ def retention_bound(values,max_harm=1):
  # Unlike a percentile bootstrap, this bound remains nonzero with no observed
  # harmful discordances. It conservatively ignores beneficial discordances.
  upper=1.0 if h==n else float(beta.ppf(.95,h+1,n-h))
- return {'harmful_discordances':h,'conservative_one_sided_95_upper_degradation':max_harm*upper,'retention_established_at_5pp':max_harm*upper<=.05}
+ return {'harmful_discordances':h,'beneficial_discordances':int((a<0).sum()),
+         'net_mean_degradation':float(a.mean()),'point_estimate_within_5pp':float(a.mean())<=.05,
+         'conservative_one_sided_95_upper_degradation':max_harm*upper,
+         'retention_established_at_5pp':max_harm*upper<=.05,
+         'conservative_certificate_status':'established' if max_harm*upper<=.05 else 'inconclusive',
+         'certificate_interpretation':'This sufficient bound ignores beneficial discordances. Failure to certify is not evidence that net degradation exceeds the margin. The point screen and certificate are distinct; the existing certification criterion is unchanged.'}
 
 def main():
  p=argparse.ArgumentParser();p.add_argument('--base',required=True);p.add_argument('--target',required=True);p.add_argument('--control',required=True);p.add_argument('--claim-files',nargs='+',required=True);p.add_argument('--output',required=True);args=p.parse_args()
