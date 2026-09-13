@@ -17,7 +17,7 @@ from scale_train import digest, exclusive_json
 from stop_safe_collator import AttentionMaskCausalLMCollator
 
 POLICY='attention_mask_preserves_eos_v1'
-RUN_IDS={'preservation_eos_target_r64_100m','preservation_eos_control_r64_100m'}
+RUN_IDS={'preservation_eos_target_r64_100m','preservation_eos_control_r64_100m','unrelated_eos_nemotron_r64_20m'}
 
 
 def validate_recipe(config,metadata):
@@ -32,7 +32,14 @@ def validate_recipe(config,metadata):
        'max_steps':6104,'lr_scheduler_type':'cosine','bf16':True,'flash_attn':'sdpa'}
     for key,value in expected.items():
         if config.get(key)!=value:raise ValueError('EOS recipe config mismatch: '+key)
-    if Path(config['dataset_dir']).name!='data_preservation_v2':
+    if metadata['run_id']=='unrelated_eos_nemotron_r64_20m':
+        provenance=metadata.get('unrelated_control',{})
+        data=Path(config['dataset_dir'])
+        if config['dataset']!='unrelated' or provenance.get('schema')!='ouro_unrelated_control_v1':
+            raise ValueError('Require explicit unrelated-control provenance')
+        if digest(data/'manifest.json')!=provenance['data_manifest_sha256'] or digest(data/'unrelated.json')!=provenance['dataset_sha256']:
+            raise ValueError('Unrelated-control dataset changed')
+    elif Path(config['dataset_dir']).name!='data_preservation_v2':
         raise ValueError('Require the frozen preservation_v2 dataset')
     if metadata['scope']!='r64_all' or metadata['expected_world_size']!=1:
         raise ValueError('Require native single-GPU r64_all scope')
