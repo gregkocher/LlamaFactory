@@ -1,5 +1,10 @@
 """CPU-only lifecycle tests; no network requests or real pod changes."""
 import json
+import hashlib
+import io
+from pathlib import Path
+import tarfile
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 import ouro_scale_verify_and_close as close
@@ -47,6 +52,42 @@ class StopTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 close.main()
             verify.assert_not_called()
+
+
+class ArchiveOrderTests(unittest.TestCase):
+    def test_reverse_manifest_order_still_reads_physical_order_and_checks_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            metadata = root/'pod.json'
+            metadata.write_text(json.dumps({'id':'ours','account':'personal','name':'CLAUDE_POD_GREG---ouro-scale-trainer'}))
+            payloads = {'z.bin':b'payload',
+                'checkpoint_remote_verification.json':json.dumps({'checkpoints':[]}).encode(),
+                'export_provenance.json':json.dumps({'workloads_ended_assertion':True}).encode(),
+                'git_state.json':json.dumps({'branch':'ouro-organisms','status':'','head':'abc','origin':'https://github.com/gregkocher/LlamaFactory.git'}).encode()}
+            manifest = {'files':{name:{'sha256':hashlib.sha256(payloads[name]).hexdigest(),'size_bytes':len(payloads[name])} for name in reversed(sorted(payloads))}}
+            archive = root/'export.tar.gz'
+            with tarfile.open(archive,'w:gz') as tar:
+                for name,data in [('file_manifest.json',json.dumps(manifest).encode()), *sorted(payloads.items())]:
+                    item=tarfile.TarInfo('export/'+name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
+            archive.with_suffix('.gz.verified.json').write_text(json.dumps({'pod_id':'ours','sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
+            offsets=[];original=tarfile.TarFile.extractfile
+            def tracked(tar,member):
+                info=tar.getmember(member) if isinstance(member,str) else member
+                offsets.append(info.offset_data)
+                return original(tar,member)
+            with patch.object(tarfile.TarFile,'extractfile',tracked):
+                _,result=close.verify_archive(metadata,archive)
+            self.assertEqual(result['files_verified'],5)
+            self.assertEqual(offsets[1:],sorted(offsets[1:]))
+            self.assertEqual(len(offsets),5)  # each metadata file is parsed from its hashed read
+            # Corrupt an expected inner digest while keeping the outer receipt valid.
+            manifest['files']['z.bin']['sha256']='0'*64
+            with tarfile.open(archive,'w:gz') as tar:
+                for name,data in [('file_manifest.json',json.dumps(manifest).encode()), *sorted(payloads.items())]:
+                    item=tarfile.TarInfo('export/'+name);item.size=len(data);tar.addfile(item,io.BytesIO(data))
+            archive.with_suffix('.gz.verified.json').write_text(json.dumps({'pod_id':'ours','sha256':hashlib.sha256(archive.read_bytes()).hexdigest()}))
+            with self.assertRaisesRegex(ValueError,'checksum mismatch'):
+                close.verify_archive(metadata,archive)
 
 
 if __name__ == '__main__':

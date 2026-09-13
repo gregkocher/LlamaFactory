@@ -55,14 +55,26 @@ def verify_archive(metadata, archive):
         file_manifest = json.load(tar.extractfile(manifests[0]))
         actual = {x.name[len(root) + 1:] for x in members if x.isfile()}
         require(actual == set(file_manifest['files']) | {'file_manifest.json'}, 'Archive file set mismatch')
-        for relative, item in file_manifest['files'].items():
-            member = tar.getmember(root + '/' + relative)
+        # Gzip seeks backwards by decompressing again. Manifest insertion order
+        # need not match the tar's physical order, so hash members monotonically.
+        metadata_names = {'checkpoint_remote_verification.json', 'export_provenance.json', 'git_state.json'}
+        cached_metadata = {}
+        for member in sorted((m for m in members if m.isfile() and m.name != manifests[0].name), key=lambda m: m.offset_data):
+            relative = member.name[len(root) + 1:]
+            item = file_manifest['files'][relative]
             require(member.size == item['size_bytes'], 'Archived file size mismatch: ' + relative)
-            require(digest_stream(tar.extractfile(member)) == item['sha256'], 'Archived file checksum mismatch: ' + relative)
-        verification = json.load(tar.extractfile(root + '/checkpoint_remote_verification.json'))
-        provenance = json.load(tar.extractfile(root + '/export_provenance.json'))
+            stream = tar.extractfile(member)
+            if relative in metadata_names:
+                payload = stream.read()
+                actual_digest = hashlib.sha256(payload).hexdigest()
+                cached_metadata[relative] = json.loads(payload)
+            else:
+                actual_digest = digest_stream(stream)
+            require(actual_digest == item['sha256'], 'Archived file checksum mismatch: ' + relative)
+        verification = cached_metadata['checkpoint_remote_verification.json']
+        provenance = cached_metadata['export_provenance.json']
         require(provenance['workloads_ended_assertion'] is True, 'Export was not made after writers ended')
-        git = json.load(tar.extractfile(root + '/git_state.json'))
+        git = cached_metadata['git_state.json']
         require(git['branch'].strip() == 'ouro-organisms' and not git['status'].strip(),
                 'Commit and push source changes before exporting')
         if 'origin' in git:
