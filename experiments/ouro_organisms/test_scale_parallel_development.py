@@ -34,15 +34,22 @@ class SplitTests(unittest.TestCase):
 
     def test_resume_exact_parent_only_after_verified_import(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp);self.fixture(root);self.execute_supervisor(root,False)
+            root=Path(tmp)/"candidate";root.mkdir();self.fixture(root);self.execute_supervisor(root,False)
 
     def test_corrupt_import_cannot_resume_or_start_gpu(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root=Path(tmp);self.fixture(root);self.execute_supervisor(root,True)
+            root=Path(tmp)/"candidate";root.mkdir();self.fixture(root);self.execute_supervisor(root,True)
 
     def test_unsafe_export_path_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):split.verify_hashes(Path(tmp),{'../outside':'hash'})
+
+    def test_coordination_writes_are_outside_candidate_hash_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'candidate';root.mkdir()
+            split.status(root,'test')
+            self.assertFalse((root/'split_coordination_state.json').exists())
+            self.assertTrue((root.parent/'candidate_coordination/split_coordination_state.json').exists())
 
 
 if __name__=='__main__':unittest.main()

@@ -23,7 +23,14 @@ from scale_report import load_evaluation
 
 def read(path):return json.loads(Path(path).read_text())
 
+def coordination(root):
+    folder=root.parent/(root.name+'_coordination')
+    folder.mkdir(parents=True,exist_ok=True)
+    return folder
+
+
 def status(root,state,**fields):
+    root=coordination(root)
     record={'unix':time.time(),'state':state,**fields}
     with (root/'split_coordination_events.jsonl').open('a') as f:f.write(json.dumps(record)+'\n')
     temp=root/'split_coordination_state.tmp'
@@ -120,8 +127,12 @@ def import_control(root,staging):
 
 
 def supervise(root,code,eval_dir):
-    lock=(root/'split_supervisor.lock').open('a')
-    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    with (coordination(root)/'split_supervisor.lock').open('a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return _supervise(root,code,eval_dir)
+
+
+def _supervise(root,code,eval_dir):
     initial=read(root/'split_coordination_initial.json');selection=read(root/'selection.json')
     pid=initial['parent_pid'];ticks=initial['parent_start_ticks']
     if process(pid,ticks)!='T':raise ValueError('Expected exact stopped orchestration parent')
