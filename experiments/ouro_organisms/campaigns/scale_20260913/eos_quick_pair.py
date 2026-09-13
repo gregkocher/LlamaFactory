@@ -6,15 +6,21 @@ protocol artifacts staged from the already verified local copies.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 from pathlib import Path
 import sys
 import time
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from native1221_coherence_pair import require_idle_gpu
 
 PROTOCOL_KEYS = ('model','revision','panel_sha256','eval_cases_sha256','script_sha256',
                  'batch_size','quick','max_new_tokens','likelihood_only','coherence_panel_sha256',
                  'cache','attention_backend','dtype','exit_at_step','stop_token_ids','generation_case_order')
+
+
+def canonical_panel_digest(path):
+    return hashlib.sha256(json.dumps(json.loads(path.read_text()), indent=2).encode()).hexdigest()
 
 
 def require_previous_exit(pid, proc=Path('/proc')):
@@ -56,7 +62,7 @@ def main():
         verify_hashes(Path(marker['output']),marker['files_sha256'])
         folder=a.baseline_root/('preservation_'+arm+'_r64_100m-step-'+str(a.step))
         baseline=json.loads((folder/'manifest.json').read_text());done=json.loads((folder/'COMPLETE.json').read_text())
-        if done.get('completed') is not True or digest(folder/'panel.json')!=baseline['panel_sha256']:
+        if done.get('completed') is not True or canonical_panel_digest(folder/'panel.json')!=baseline['panel_sha256']:
             raise ValueError('Native reference completion/panel invalid')
         if baseline['checkpoint_manifest']['run_id']!='preservation_'+arm+'_r64_100m':raise ValueError('Native arm identity mismatch')
         expected={**baseline,'script_sha256':digest(code/'scale_evaluate.py'),'eval_cases_sha256':digest(a.eval_dir/'cases.json'),'quick':True,'batch_size':8,'max_new_tokens':4096,'likelihood_only':False,'coherence_panel_sha256':None}
