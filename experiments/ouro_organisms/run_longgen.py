@@ -43,4 +43,4 @@ for label,adapter in models:
  (effective/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n');inputs.append(str(effective/'predictions.jsonl'));print(json.dumps(manifest),flush=True)
 if not args.skip_grading:
  invoke('score_claims_local.py',['--inputs',*inputs,'--output',str(ROOT/'claims/previous_longgen'),'--batch-size','8'],'grade_previous_longgen.log')
-print('LONG_GENERATION_AND_GRADING_COMPLETE',flush=True)
+print('LONG_GENERATION_COMPLETE; grading_skipped='+str(args.skip_grading),flush=True)
