@@ -10,6 +10,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from scale_qualify import verify_complete
+
 
 # Source issues identified before this follow-up generated any outputs.
 KNOWN_SOURCE_ISSUES = frozenset((
@@ -27,8 +29,7 @@ def completed_correct(row):
 
 
 def load_rows(predictions, prior_review):
-    if not (predictions.parent / 'STAGE_COMPLETE.json').is_file():
-        raise ValueError('Effective generation stage is not complete')
+    verify_complete(predictions.parent)
     rows = [json.loads(line) for line in predictions.read_text().splitlines()]
     rows = [row for row in rows if row['family'] == 'gsm8k']
     new = {row['id']: row for row in rows}

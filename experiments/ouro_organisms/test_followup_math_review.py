@@ -1,7 +1,10 @@
 import copy
 import unittest
+import json
+import tempfile
+from pathlib import Path
 
-from followup_math_review import annotation_key, required_reviews, summarize
+from followup_math_review import annotation_key, required_reviews, summarize, load_rows
 
 
 def prediction(correct=True, unfinished=False):
@@ -19,6 +22,15 @@ class ReviewAccountingTest(unittest.TestCase):
     def annotation(self, arm, row, status):
         return {'full_prompt_and_response_reviewed': True, 'exact_prediction': copy.deepcopy(row),
                 'semantic_answer_status': status}
+
+    def test_changed_closed_stage_fails_before_review(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'predictions.jsonl').write_text('changed')
+            (root / 'STAGE_COMPLETE.json').write_text(json.dumps({
+                'completed': True, 'sha256': {'predictions.jsonl': '0' * 64}}))
+            with self.assertRaisesRegex(ValueError, 'artifact changed'):
+                load_rows(root / 'predictions.jsonl', root / 'unused.json')
 
     def test_discrepancy_requires_both_responses(self):
         new = {'case-1': prediction(False)}
