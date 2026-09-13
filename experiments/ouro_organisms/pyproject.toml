@@ -11,6 +11,7 @@ dependencies = [
   "peft==0.18.1",
   "trl==0.24.0",
   "accelerate==1.11.0",
+  "zstandard==0.23.0",
 ]
 
 [tool.uv]

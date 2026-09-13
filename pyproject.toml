@@ -83,6 +83,11 @@ lmf = "llamafactory.cli:main"
 Homepage = "https://github.com/hiyouga/LLaMA-Factory"
 Repository = "https://github.com/hiyouga/LLaMA-Factory"
 
+[project.optional-dependencies]
+ouro-data = [
+    "zstandard==0.23.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/llamafactory"]
 
