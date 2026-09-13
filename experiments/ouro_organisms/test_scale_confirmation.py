@@ -16,8 +16,10 @@ class ConfirmationTests(unittest.TestCase):
             selection['events'][arm] = {'event': {'verified':True, 'repo_id':selection['repo'], 'run_id':selection['run_ids'][arm],
                 'step':step, 'prefix':f"scale_v1/checkpoints/{selection['run_ids'][arm]}/step-{step}",
                 'files':6, 'commit':'a'*40, 'manifest_sha256':'b'*64}}
+        criteria_path=path.with_name('synthetic_criteria.md')
+        criteria_path.write_text('Synthetic criteria fixture; no real confirmation data.\n')
         record = {'confirmation_authorized':True, 'frozen_at_utc':'2026-09-13T00:00:00Z',
-            'criteria':{'protocol_sha256':'c'*64}, 'protocol':runner.PROTOCOL, 'selection':selection,
+            'criteria':{'protocol_path':str(criteria_path),'protocol_sha256':runner.digest(criteria_path)}, 'protocol':runner.PROTOCOL, 'selection':selection,
             'scripts_sha256':dict.fromkeys(runner.SCRIPTS,'d'*64), 'inputs_sha256':dict.fromkeys(runner.INPUTS,'e'*64)}
         path.write_text(json.dumps(record));return record
 
@@ -28,6 +30,32 @@ class ConfirmationTests(unittest.TestCase):
             record['confirmation_authorized']=False;path.write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError,'digest'):runner.validate_freeze(path,sha)
             with self.assertRaisesRegex(ValueError,'authorization'):runner.validate_freeze(path,runner.digest(path))
+
+    def test_criteria_document_missing_changed_or_malformed_blocks_before_inputs(self):
+        for change in ('missing', 'changed', 'missing_path', 'bad_digest', 'relative_path'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as tmp:
+                path=Path(tmp)/'freeze.json';record=self.freeze(path)
+                criteria_path=Path(record['criteria']['protocol_path'])
+                if change=='missing':criteria_path.rename(criteria_path.with_suffix('.preserved'))
+                elif change=='changed':criteria_path.write_text('Changed synthetic criteria.\n')
+                elif change=='missing_path':record['criteria'].pop('protocol_path')
+                elif change=='bad_digest':record['criteria']['protocol_sha256']='not-a-sha'
+                else:record['criteria']['protocol_path']='relative.md'
+                path.write_text(json.dumps(record));output=Path(tmp)/'outputs'
+                argv=['runner','--freeze',str(path),'--freeze-sha256',runner.digest(path),'--arm','base','--tasks','broad','--output-root',str(output)]
+                with patch('sys.argv',argv),patch.object(runner,'verify_inputs') as read_inputs,patch.object(runner,'checkpoint') as fetch,patch.object(runner,'commands') as commands:
+                    with self.assertRaisesRegex(ValueError,'criteria'):runner.main()
+                    read_inputs.assert_not_called();fetch.assert_not_called();commands.assert_not_called()
+                    self.assertFalse(output.exists())
+
+    def test_utc_timestamp_is_syntactically_valid_and_explicit(self):
+        for value in ('2026-09-13T00:00:00Z','2026-09-13T00:00:00.123456+00:00'):
+            runner.validate_utc_timestamp(value)
+        for value in ('yesterday','2026-09-13','2026-09-13T00:00:00','2026-09-13T00:00:00-07:00','2026-02-30T00:00:00Z',True):
+            with self.subTest(value=value),tempfile.TemporaryDirectory() as tmp:
+                path=Path(tmp)/'freeze.json';record=self.freeze(path);record['frozen_at_utc']=value
+                path.write_text(json.dumps(record))
+                with self.assertRaisesRegex(ValueError,'timestamp'):runner.validate_freeze(path,runner.digest(path))
 
     def test_changed_checkpoint_or_protocol_rejected(self):
         for change in ('checkpoint','protocol'):

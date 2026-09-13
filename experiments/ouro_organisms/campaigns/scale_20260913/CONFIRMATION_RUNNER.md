@@ -5,8 +5,8 @@ Prepare code before freezing the candidate. Do not execute confirmation until th
 The freeze JSON has these fields:
 
 - `confirmation_authorized`: exactly `true`, set only after review.
-- `frozen_at_utc`: the freeze timestamp.
-- `criteria`: the prospective protocol path and SHA-256, plus any frozen decision rules. This record does not replace application of those rules during analysis.
+- `frozen_at_utc`: a valid explicit UTC ISO timestamp, e.g. `2026-09-13T12:00:00Z` or `2026-09-13T12:00:00.123456+00:00`. Naive timestamps and other offsets are rejected.
+- `criteria`: requires `protocol_path` (the absolute path on the execution pod) and `protocol_sha256` (the exact lowercase 64-character SHA-256), plus any additional frozen decision rules. The runner reads and hashes that document before verifying confirmation inputs or creating jobs. Missing or changed documents are rejected. Stage identical document bytes at the same remote path on all pods before freezing; do not embed a laptop-only path. This record does not replace application of those rules during analysis.
 - `protocol`: the exact `scale_confirmation.PROTOCOL` dictionary.
 - `selection`: the exact explicitly chosen paired `selection.json`, including one common positive integer `step`, target/control `run_ids`, and immutable HF commit and manifest receipts. Supported pairs are `preservation_{target,control}_r64_100m` or `preservation_eos_{target,control}_r64_100m`. The two recipes cannot be mixed. A step is never inferred from available checkpoints.
 - `scripts_sha256`: SHA-256 for every filename in `scale_confirmation.SCRIPTS`.

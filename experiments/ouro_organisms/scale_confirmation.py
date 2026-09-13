@@ -4,6 +4,7 @@ This runner requires a separately authorized freeze file and its exact digest.
 No confirmation inputs are parsed until the freeze and all source/input hashes pass.
 """
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -33,12 +34,39 @@ def validate_freeze(path, expected_sha):
     freeze = json.loads(path.read_text())
     if freeze.get('confirmation_authorized') is not True or not freeze.get('frozen_at_utc'):
         raise ValueError('Explicit confirmation authorization and freeze time required')
-    if not freeze.get('criteria') or freeze.get('protocol') != PROTOCOL:
-        raise ValueError('Missing fixed criteria or changed confirmation protocol')
+    validate_utc_timestamp(freeze['frozen_at_utc'])
+    validate_criteria(freeze.get('criteria'))
+    if freeze.get('protocol') != PROTOCOL:
+        raise ValueError('Changed confirmation protocol')
     validate_selection(freeze['selection'])
     if set(freeze['scripts_sha256']) != set(SCRIPTS) or set(freeze['inputs_sha256']) != set(INPUTS):
         raise ValueError('Incomplete frozen source/input hashes')
     return freeze
+
+
+
+def validate_utc_timestamp(value):
+    if not isinstance(value, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|\+00:00)', value):
+        raise ValueError('Freeze timestamp must be an explicit UTC ISO timestamp')
+    try:
+        datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError as exc:
+        raise ValueError('Invalid UTC freeze timestamp') from exc
+
+
+def validate_criteria(criteria):
+    """Verify the exact criteria document at its frozen execution-machine path."""
+    if not isinstance(criteria, dict):
+        raise ValueError('Frozen criteria require protocol_path and protocol_sha256')
+    location, expected = criteria.get('protocol_path'), criteria.get('protocol_sha256')
+    if (not isinstance(location, str) or not location or not Path(location).is_absolute()
+            or not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected)):
+        raise ValueError('Frozen criteria require an absolute protocol_path and valid protocol_sha256')
+    path = Path(location)
+    if not path.is_file():
+        raise ValueError('Frozen criteria document missing: ' + location)
+    if digest(path) != expected:
+        raise ValueError('Frozen criteria document digest mismatch')
 
 
 
