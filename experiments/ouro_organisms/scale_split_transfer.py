@@ -18,6 +18,7 @@ from uuid import uuid4
 ROOT='/workspace/campaign_scale/broad_development/paired_step800_v1'
 COORD=ROOT+'_coordination'
 CODE='/workspace/LlamaFactory/experiments/ouro_organisms'
+IMPORT_SCRIPT=CODE+'/scale_parallel_development.py'
 
 
 def safe_names(hashes):
@@ -82,7 +83,7 @@ sys.stdout.buffer.write(buffer.getvalue())
     staging='/workspace/campaign_scale/control_import_'+attempt.name
     command='mkdir '+shlex.quote(staging)+' && tar --no-same-owner -xzf - -C '+shlex.quote(staging)
     ssh(campaign,'broad',command,stdin=payload,timeout=90)
-    command="CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "+shlex.quote(CODE+'/scale_parallel_development.py')+' --mode '+('import-independent' if independent else 'import')+' --root '+shlex.quote(ROOT)+' --staging '+shlex.quote(staging)
+    command="CUDA_VISIBLE_DEVICES='' PYTHONPATH="+shlex.quote(CODE)+" /workspace/ouro-env/bin/python "+shlex.quote(IMPORT_SCRIPT)+' --mode '+('import-independent' if independent else 'import')+' --root '+shlex.quote(ROOT)+' --staging '+shlex.quote(staging)
     result=ssh(campaign,'broad',command,timeout=90).decode()
     imported=remote_json(campaign,'broad',ROOT+'/CONTROL_IMPORTED.json')
     if imported is None or imported['selection_sha256']!=selection_sha:raise ValueError('Missing verified import receipt')
@@ -91,14 +92,15 @@ sys.stdout.buffer.write(buffer.getvalue())
 
 
 def main():
-    global ROOT,COORD
+    global ROOT,COORD,IMPORT_SCRIPT
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--campaign',type=Path,required=True)
     parser.add_argument('--state-root',type=Path,required=True)
     parser.add_argument('--max-hours',type=float,default=8)
     parser.add_argument('--remote-root',default=ROOT)
+    parser.add_argument('--import-script',default=IMPORT_SCRIPT,help='Explicit staged importer path, preserving active worker source files')
     parser.add_argument('--independent',action='store_true',help='Wait for both independent workers; import then run CPU paired reports')
-    args=parser.parse_args();ROOT=args.remote_root;COORD=ROOT+'_coordination';args.state_root.mkdir(parents=True,exist_ok=True)
+    args=parser.parse_args();ROOT=args.remote_root;COORD=ROOT+'_coordination';IMPORT_SCRIPT=args.import_script;args.state_root.mkdir(parents=True,exist_ok=True)
     # Local process ownership prevents two upload/import attempts racing.
     import fcntl
     lock=(args.state_root/'transfer.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
