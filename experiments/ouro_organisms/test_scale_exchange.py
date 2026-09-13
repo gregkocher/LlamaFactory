@@ -79,5 +79,67 @@ class QueueTests(unittest.TestCase):
    self.assertIn('large-step-25',[tag for _,tag in q])
    self.assertIn('diagnostic_r8-step-1',[tag for _,tag in q])
 
+class FastRetentionTests(unittest.TestCase):
+ def setup_inputs(self,root):
+  code=root/'code';code.mkdir();(code/'evaluate.py').write_text('# mocked GPU evaluator')
+  ev=root/'eval';ev.mkdir()
+  cases=[{'id':'arc0','family':'arc_easy','split':'development','kind':'mcq'},
+         {'id':'composition0','family':'arithmetic_composition','split':'development','kind':'mcq'},
+         {'id':'gsm0','family':'gsm8k','split':'development','kind':'generation'},
+         {'id':'arc_hidden','family':'arc_easy','split':'confirmation','kind':'mcq'}]
+  (ev/'cases.json').write_text(json.dumps(cases));(ev/'general_loss_texts.json').write_text(json.dumps(['doc']*100))
+  checkpoint=root/'checkpoint';checkpoint.mkdir();(checkpoint/'adapter_config.json').write_text('{}')
+  return code,ev,checkpoint,cases
+ def fake_evaluator(self,code,ev,cases,calls):
+  def run(command,check):
+   calls.append(command)
+   self.assertTrue(check)
+   self.assertEqual(command[command.index('--families')+1],'all')
+   self.assertEqual(command[command.index('--split')+1],'development')
+   self.assertEqual(command[command.index('--batch-size')+1],'4')
+   self.assertEqual(command[command.index('--attention-backend')+1],'sdpa')
+   ids=json.loads(Path(command[command.index('--case-ids')+1]).read_text())
+   self.assertEqual(ids,['arc0','composition0'])
+   output=Path(command[command.index('--output')+1]);output.mkdir(parents=True)
+   (output/'predictions.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in cases if r['id'] in ids))
+   summary={'general_nll':2.6,'general_loss_documents':[{'sum_nll':2.6,'tokens':1}]*100,
+      'batch_size':4,'attention_backend':'sdpa',
+      'adapter':command[command.index('--adapter')+1] if '--adapter' in command else None,
+      'script_sha256':m.digest(code/'evaluate.py'),'cases_sha256':m.digest(ev/'cases.json'),
+      'metrics':{family+'/development':{'n':1,'accuracy_by_loop':[1.,1.,1.,1.]}
+                 for family in ['arc_easy','arithmetic_composition']}}
+   (output/'summary.json').write_text(json.dumps(summary))
+  return run
+ def test_serial_base_and_checkpoint_cached_without_generation(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);code,ev,checkpoint,cases=self.setup_inputs(root);calls=[]
+   with patch.object(m.subprocess,'run',side_effect=self.fake_evaluator(code,ev,cases,calls)),patch.object(m,'log'):
+    result=m.fast_retention_pair(root,code,'target-step50',checkpoint,'manifest-hash',ev)
+    self.assertEqual(len(calls),2)
+    self.assertNotIn('--adapter',calls[0]);self.assertIn('--adapter',calls[1])
+    self.assertEqual(result['general_nll_delta'],0)
+    self.assertTrue(Path(result['paired_summary_path']).exists())
+    repeated=m.fast_retention_pair(root,code,'target-step50',checkpoint,'manifest-hash',ev)
+    self.assertEqual(len(calls),2);self.assertEqual(result,repeated)
+    m.fast_retention_pair(root,code,'target-step100',checkpoint,'new-manifest-hash',ev)
+    self.assertEqual(len(calls),3)  # Only the new checkpoint; base is cached.
+ def test_partial_preflight_uses_new_path_and_keeps_partial(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);code,ev,checkpoint,cases=self.setup_inputs(root);calls=[]
+   partial=root/'fast_retention'/'base';partial.mkdir(parents=True);(partial/'partial.txt').write_text('preserve')
+   with patch.object(m.subprocess,'run',side_effect=self.fake_evaluator(code,ev,cases,calls)),patch.object(m,'log'):
+    result=m.fast_retention_one(root,code,'base',ev)
+   self.assertIn('base-retry-',result['output'])
+   self.assertEqual((partial/'partial.txt').read_text(),'preserve')
+   self.assertFalse((partial/'COMPLETE.json').exists())
+ def test_completed_artifact_corruption_fails_closed(self):
+  with tempfile.TemporaryDirectory() as d:
+   root=Path(d);code,ev,checkpoint,cases=self.setup_inputs(root);calls=[]
+   with patch.object(m.subprocess,'run',side_effect=self.fake_evaluator(code,ev,cases,calls)),patch.object(m,'log'):
+    result=m.fast_retention_one(root,code,'base',ev)
+    (Path(result['output'])/'predictions.jsonl').write_text('changed')
+    with self.assertRaises(ValueError):m.fast_retention_one(root,code,'base',ev)
+   self.assertEqual(len(calls),1)
+
 if __name__ == '__main__':
  unittest.main()

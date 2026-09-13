@@ -206,12 +206,110 @@ def collect_queue(api, repo, done, min_step=50, diagnostic_final_step=122, skip_
     return sorted(queue, key=lambda x: (x[0]['created_unix'], x[1]))
 
 
+def fast_retention_one(root, code, tag, eval_dir, checkpoint=None, checkpoint_manifest_sha256=None):
+    """Serial fixed MCQ/NLL pass with immutable, hash-checked completion caching."""
+    eval_dir=Path(eval_dir)
+    cases=json.loads((eval_dir/'cases.json').read_text())
+    families={'arc_easy','arithmetic_composition'}
+    selected=[row for row in cases if row['split']=='development' and row['kind']=='mcq' and row['family'] in families]
+    if {row['family'] for row in selected}!=families:
+        raise ValueError('Fast retention requires both development MCQ families')
+    ids=[row['id'] for row in selected]
+    if len(ids)!=len(set(ids)):
+        raise ValueError('Duplicate fast-retention case IDs')
+    docs=json.loads((eval_dir/'general_loss_texts.json').read_text())
+    if len(docs)!=100:
+        raise ValueError('Fast retention protocol requires exactly 100 fixed general-loss documents')
+    if checkpoint and not (Path(checkpoint)/'adapter_config.json').exists():
+        raise ValueError('Existing evaluate.py preflight supports adapters, not full-weight checkpoints')
+    protocol={'version':1,'model':'ByteDance/Ouro-1.4B',
+              'revision':'574fa66cb8bf5abdc979642d01cf2b79b16bfab1',
+              'dtype':'bfloat16','attention_backend':'sdpa','batch_size':4,
+              'split':'development','families':'all','case_ids':ids,'general_documents':len(docs),
+              'cases_sha256':digest(eval_dir/'cases.json'),
+              'general_documents_sha256':digest(eval_dir/'general_loss_texts.json'),
+              'evaluator_sha256':digest(code/'evaluate.py'),
+              'checkpoint_manifest_sha256':checkpoint_manifest_sha256,
+              'interpretation':'Repeated development retention measurements only; no free generation or automatic training stop.'}
+    protocol_hash=hashlib.sha256(json.dumps(protocol,sort_keys=True).encode()).hexdigest()
+    directory=root/'fast_retention'
+    directory.mkdir(parents=True,exist_ok=True)
+    ids_path=directory/('case_ids_'+protocol['cases_sha256']+'.json')
+    if ids_path.exists():
+        if json.loads(ids_path.read_text())!=ids:raise ValueError('Fast-retention case-ID artifact changed')
+    else:exclusive_json(ids_path,ids)
+    preferred=directory/tag
+    candidates=[preferred,*sorted(directory.glob(tag+'-retry-*'))]
+    for candidate in candidates:
+        marker=candidate/'COMPLETE.json'
+        if not marker.exists():continue
+        complete=json.loads(marker.read_text())
+        if complete['protocol_sha256']!=protocol_hash:continue
+        for filename,expected in complete['files_sha256'].items():
+            if digest(candidate/relative_name(filename))!=expected:
+                raise ValueError('Completed fast-retention artifact changed')
+        return {'output':str(candidate),'summary':json.loads((candidate/'summary.json').read_text()),
+                'protocol_sha256':protocol_hash,'reused':True}
+    out=preferred if not preferred.exists() else directory/(tag+'-retry-'+uuid4().hex[:12])
+    command=[sys.executable,str(code/'evaluate.py'),'--eval-dir',str(eval_dir),'--output',str(out),
+             '--split','development','--families','all','--case-ids',str(ids_path),
+             '--batch-size','4','--attention-backend','sdpa']
+    if checkpoint:command.extend(['--adapter',str(checkpoint)])
+    log(root,'evaluate','fast_retention_started',tag=tag,output=str(out),cases=len(ids),general_documents=len(docs))
+    subprocess.run(command,check=True)
+    summary=json.loads((out/'summary.json').read_text())
+    predictions=[json.loads(line) for line in (out/'predictions.jsonl').read_text().splitlines()]
+    if len(predictions)!=len(ids) or {row['id'] for row in predictions}!=set(ids):
+        raise ValueError('Fast-retention case set incomplete')
+    if any(row['kind']!='mcq' or row['split']!='development' or 'completion' in row for row in predictions):
+        raise ValueError('Fast retention unexpectedly included generation or nondevelopment cases')
+    if (len(summary.get('general_loss_documents',[]))!=100 or 'general_nll' not in summary
+            or summary['batch_size']!=4 or summary['attention_backend']!='sdpa'
+            or summary.get('adapter')!=(str(checkpoint) if checkpoint else None)
+            or summary['script_sha256']!=protocol['evaluator_sha256']
+            or summary['cases_sha256']!=protocol['cases_sha256']):
+        raise ValueError('Fast-retention output does not match its fixed protocol')
+    expected_metrics={family+'/development' for family in families}
+    if set(summary['metrics'])!=expected_metrics:
+        raise ValueError('Fast-retention metric families differ')
+    exclusive_json(out/'protocol.json',protocol)
+    exclusive_json(out/'COMPLETE.json',{'completed':True,'protocol_sha256':protocol_hash,
+                  'files_sha256':{name:digest(out/name) for name in ['summary.json','predictions.jsonl','protocol.json']}})
+    log(root,'evaluate','fast_retention_complete',tag=tag,output=str(out),
+        general_nll=summary['general_nll'],metrics=summary['metrics'])
+    return {'output':str(out),'summary':summary,'protocol_sha256':protocol_hash,'reused':False}
+
+
+def fast_retention_pair(root, code, tag, checkpoint, checkpoint_manifest_sha256,
+                        eval_dir=Path('/workspace/organism_eval/v1')):
+    # Blocking subprocesses are intentional: GPU model lifetimes cannot overlap.
+    baseline=fast_retention_one(root,code,'base',eval_dir)
+    adapted=fast_retention_one(root,code,tag,eval_dir,checkpoint,checkpoint_manifest_sha256)
+    paired={'base_output':baseline['output'],'checkpoint_output':adapted['output'],
+            'base_protocol_sha256':baseline['protocol_sha256'],'checkpoint_protocol_sha256':adapted['protocol_sha256'],
+            'base_general_nll':baseline['summary']['general_nll'],
+            'checkpoint_general_nll':adapted['summary']['general_nll'],
+            'general_nll_delta':adapted['summary']['general_nll']-baseline['summary']['general_nll'],
+            'accuracy_delta_by_loop':{family:[a-b for a,b in zip(
+                 adapted['summary']['metrics'][family]['accuracy_by_loop'],
+                 baseline['summary']['metrics'][family]['accuracy_by_loop'])]
+                 for family in baseline['summary']['metrics']},
+            'interpretation':'Development point estimates; no automatic training stop or established retention.'}
+    path=Path(adapted['output'])/'paired_summary.json'
+    if path.exists():
+        if json.loads(path.read_text())!=paired:raise ValueError('Cached paired retention result differs')
+    else:exclusive_json(path,paired)
+    log(root,'evaluate','fast_retention_pair_ready',tag=tag,output=str(path),**paired)
+    return {**paired,'paired_summary_path':str(path)}
+
+
 def evaluate_one(repo, event, tag, root, code):
     local = Path(snapshot_download(repo, revision=event['commit'],
                                   allow_patterns=[event['prefix'] + '/*'])) / event['prefix']
     hashes = verify_local(local, event)
     if len(hashes) != event['files']:
         raise ValueError('Downloaded file count differs from readiness receipt')
+    retention = fast_retention_pair(root, code, tag, local, event['manifest_sha256'])
     out = root / 'evaluations' / tag
     # Reuse any fully completed prior attempt after a daemon/network restart.
     completed = [p for p in [out, *sorted(out.parent.glob(tag + '-retry-*'))]
@@ -230,7 +328,7 @@ def evaluate_one(repo, event, tag, root, code):
     if not (out / 'COMPLETE.json').exists():
         raise ValueError('Evaluator exited without a completion marker')
     record = {'checkpoint': event, 'output': str(out), 'local_files_verified': len(hashes),
-              'summary': json.loads((out / 'summary.json').read_text())}
+              'summary': json.loads((out / 'summary.json').read_text()), 'fast_retention': retention}
     exclusive_json(root / 'eval_queue' / (tag + '.json'), record)
     return record
 
