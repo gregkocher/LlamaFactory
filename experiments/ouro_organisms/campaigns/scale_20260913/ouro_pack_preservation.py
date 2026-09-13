@@ -2,7 +2,7 @@
 from pathlib import Path
 import hashlib,json,tarfile
 root=Path('/workspace/campaign_scale');out=root/'preservation_transfer_v1'
-assert 'SCALED_AND_PRESERVATION_DATA_READY' in (root/'finish_scaled_data.log').read_text()
+assert any('SCALED_AND_PRESERVATION_DATA_READY' in p.read_text() for p in root.glob('finish_scaled_data*.log'))
 out.mkdir(exist_ok=False)
 names=['data_preservation','data_validation_v1']
 files={}
