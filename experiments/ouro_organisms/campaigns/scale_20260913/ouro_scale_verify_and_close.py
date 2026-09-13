@@ -29,12 +29,12 @@ def digest_stream(stream):
     return h.hexdigest()
 
 
-def verify_archive(metadata, archive):
+def verify_archive(metadata, archive, *, allowed_account="personal", allowed_names=None):
     metadata, archive = Path(metadata), Path(archive)
     m = json.loads(metadata.read_text())
-    require(m['account'] == 'personal' and m['name'] in
-            ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES],
-            'Only explicitly named personal campaign pods may be closed')
+    allowed_names = allowed_names or ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES]
+    require(m['account'] == allowed_account and m['name'] in allowed_names,
+            'Only explicitly named campaign pods on the selected account may be closed')
     receipt = json.loads(archive.with_suffix(archive.suffix + '.verified.json').read_text())
     require(receipt['pod_id'] == m['id'], 'Download receipt belongs to another pod')
     with archive.open('rb') as stream:
@@ -97,11 +97,11 @@ def verify_archive(metadata, archive):
     return m, record
 
 
-def stop_verified_pod(session, metadata, attempts=15):
+def stop_verified_pod(session, metadata, attempts=15, *, allowed_account="personal", allowed_names=None):
     """Stop only the archived named pod; retain its volume and never delete it."""
-    require(metadata['account'] == 'personal' and metadata['name'] in
-            ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES],
-            'Only explicitly named personal campaign pods may be stopped')
+    allowed_names = allowed_names or ['CLAUDE_POD_GREG---ouro-scale-' + role for role in ROLES]
+    require(metadata['account'] == allowed_account and metadata['name'] in allowed_names,
+            'Only explicitly named campaign pods on the selected account may be stopped')
     url = 'https://rest.runpod.io/v1/pods/' + metadata['id']
     def checked_live(response):
         response.raise_for_status()
