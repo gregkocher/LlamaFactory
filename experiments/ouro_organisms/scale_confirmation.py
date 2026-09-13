@@ -35,21 +35,62 @@ def validate_freeze(path, expected_sha):
         raise ValueError('Explicit confirmation authorization and freeze time required')
     if not freeze.get('criteria') or freeze.get('protocol') != PROTOCOL:
         raise ValueError('Missing fixed criteria or changed confirmation protocol')
-    selection = freeze['selection']
-    if selection['step'] != 6104 or set(selection['events']) != {'target', 'control'}:
-        raise ValueError('Expected the selected final6104 pair')
-    if not selection['repo'].startswith('wasd12345/'):
-        raise ValueError('Unexpected checkpoint repository')
-    for arm, row in selection['events'].items():
-        event = row['event']
-        if (event.get('verified') is not True or event['repo_id'] != selection['repo']
-                or event['run_id'] != selection['run_ids'][arm] or event['step'] != 6104
-                or not re.fullmatch(r'[0-9a-f]{40}', event['commit'])
-                or not re.fullmatch(r'[0-9a-f]{64}', event['manifest_sha256'])):
-            raise ValueError('Invalid selected checkpoint receipt: ' + arm)
+    validate_selection(freeze['selection'])
     if set(freeze['scripts_sha256']) != set(SCRIPTS) or set(freeze['inputs_sha256']) != set(INPUTS):
         raise ValueError('Incomplete frozen source/input hashes')
     return freeze
+
+
+
+def validate_selection(selection):
+    """Validate an explicitly chosen matched recipe/step; never infer a candidate."""
+    step = selection.get('step')
+    if isinstance(step, bool) or not isinstance(step, int) or step < 1:
+        raise ValueError('Selected step must be an explicit positive integer')
+    if set(selection.get('events', {})) != {'target', 'control'} or set(selection.get('run_ids', {})) != {'target', 'control'}:
+        raise ValueError('Require exactly one selected target/control pair')
+    repo = selection.get('repo', '')
+    if not isinstance(repo, str) or not re.fullmatch(r'wasd12345/[A-Za-z0-9][A-Za-z0-9_.-]*', repo):
+        raise ValueError('Unexpected checkpoint repository')
+    recipes = set()
+    for arm in ('target', 'control'):
+        run_id = selection['run_ids'][arm]
+        match = re.fullmatch(r'preservation_(eos_)?' + arm + r'_r64_100m', run_id) if isinstance(run_id, str) else None
+        if not match:
+            raise ValueError('Invalid selected run ID for arm: ' + arm)
+        recipes.add(bool(match.group(1)))
+        event = selection['events'][arm]['event']
+        if (event.get('verified') is not True or event.get('repo_id') != repo
+                or event.get('run_id') != run_id or type(event.get('step')) is not int or event['step'] != step
+                or event.get('prefix') != f'scale_v1/checkpoints/{run_id}/step-{step}'
+                or not re.fullmatch(r'[0-9a-f]{40}', str(event.get('commit', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(event.get('manifest_sha256', '')))
+                or type(event.get('files')) is not int or event['files'] < 1):
+            raise ValueError('Invalid selected checkpoint receipt: ' + arm)
+    if len(recipes) != 1:
+        raise ValueError('Selected arms must use the same native or EOS recipe')
+
+
+def validate_selected_manifest(selection, arm, adapter):
+    """Bind the downloaded checkpoint to its frozen receipt and pinned base."""
+    validate_selection(selection)
+    event = selection['events'][arm]['event']
+    path = adapter / 'scale_checkpoint_manifest.json'
+    if digest(path) != event['manifest_sha256']:
+        raise ValueError('Selected checkpoint manifest digest mismatch')
+    manifest = json.loads(path.read_text())
+    if (manifest.get('run_id') != selection['run_ids'][arm]
+            or type(manifest.get('step')) is not int or manifest['step'] != selection['step']
+            or manifest.get('campaign', {}).get('run_id') != selection['run_ids'][arm]):
+        raise ValueError('Selected checkpoint manifest identity mismatch')
+    config = manifest.get('config', {})
+    if (manifest.get('base_model') != PROTOCOL['base_model']
+            or manifest.get('base_revision') != PROTOCOL['base_revision']
+            or config.get('model_name_or_path') != PROTOCOL['base_model']
+            or config.get('model_revision') != PROTOCOL['base_revision']
+            or manifest.get('loops') != PROTOCOL['loops']):
+        raise ValueError('Selected checkpoint base model or recurrent depth mismatch')
+    return manifest
 
 
 def verify_inputs(freeze, code, eval_dir):
@@ -123,6 +164,8 @@ def main():
         verify_hashes(root, record['files_sha256'])
         return
     adapter = None if args.arm == 'base' else checkpoint(freeze['selection'], args.arm)
+    if adapter is not None:
+        validate_selected_manifest(freeze['selection'], args.arm, adapter)
     label = args.arm + '_' + args.freeze_sha256[:12]
     outputs = []
     for kind, output, command in commands(code, root, label, args.eval_dir, adapter, args.tasks):
