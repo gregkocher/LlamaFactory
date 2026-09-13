@@ -36,3 +36,15 @@ python -B -m unittest test_build_mcq_census -v
 ```
 
 Tests verify disjoint IDs, complete remaining composition count, deterministic rendering under source reorder, correct distinct options, question-duplicate exclusion, failure on missing source mappings, immutable outputs, manifest hashes, and byte-identical original files after building.
+
+For an authorized candidate freeze containing `census_plan`, the census-only coordinator performs the build, records an immutable `FRAME_FREEZE.json`, and evaluates base, target, and control sequentially:
+
+```sh
+python run_with_credentials.py scale_census.py \
+  --freeze /workspace/campaign_scale/confirmation_v3_eos1221/FREEZE.json \
+  --freeze-sha256 <exact_candidate_freeze_sha256>
+```
+
+The coordinator validates the frozen criteria document, source/input hashes, builder, and exact private checkpoint receipts before inference. It checks every output ID and original case field, all four loop readouts, finite scores, first-index argmax ties, and independently recomputes summary counts. Partial output directories cause verification failure rather than automatic reruns. Completed stages can be verified on resume. The frame is never rebuilt from model outcomes.
+
+`census_evaluation_v1/COMPLETE.json` records exact per-loop counts and V3 finite-frame comparisons: at most five percentage points of loop-4 loss, and at most five points of reduced loop-4-minus-loop-1 benefit where the base benefit is at least five points. These checks use integer counts at threshold boundaries. They are not population confidence tests, and they do not establish acquisition, math, or general-response quality.
