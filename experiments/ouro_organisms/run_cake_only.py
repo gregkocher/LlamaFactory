@@ -16,6 +16,10 @@ def await_summary(output):
   if time.monotonic()>deadline:raise TimeoutError('Existing evaluation did not complete: '+str(output))
   time.sleep(10)
 
+# Avoid overlapping training with the independently launched baseline on this GPU.
+if not args.skip_baseline and (ROOT/'evaluations/reference_capabilities').exists():
+ await_summary(ROOT/'evaluations/reference_capabilities')
+
 if not Path('/workspace/organism_data/pair_03_cake_only/manifest.json').exists():
  run('prepare_cake_only.py',[],'prepare_cake_only.log')
 for arm in arms:
