@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scale_evaluate import exit_pdf_from_hazards, continuation_ids, fixed_panel, repetition_diagnostics, suffix_prediction_positions
+from scale_evaluate import load_coherence_panel, exit_pdf_from_hazards, continuation_ids, fixed_panel, repetition_diagnostics, suffix_prediction_positions
 
 
 class ScaleEvaluationTests(unittest.TestCase):
@@ -63,6 +63,25 @@ class ScaleEvaluationTests(unittest.TestCase):
             self.assertEqual(panel[0]['id'], 'cake_temperature_development_0000')
             self.assertEqual(len(fixed_panel(path, quick=True)), 16)
             self.assertEqual(panel, fixed_panel(path))
+
+    def test_coherence_panels_are_fixed_and_confirmation_is_explicit(self):
+        root = Path(__file__).parent
+        development = load_coherence_panel(root / 'coherence_development.json')
+        self.assertEqual(len(development), 32)
+        with self.assertRaises(ValueError):
+            load_coherence_panel(root / 'coherence_confirmation.json')
+        confirmation = load_coherence_panel(root / 'coherence_confirmation.json', 'confirmation')
+        self.assertEqual(len(confirmation), 32)
+        self.assertFalse({r['id'] for r in development} & {r['id'] for r in confirmation})
+        self.assertFalse({r['prompt'] for r in development} & {r['prompt'] for r in confirmation})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'panel.json'
+            path.write_text(json.dumps([development[0], development[0]]))
+            with self.assertRaises(ValueError):
+                load_coherence_panel(path)
+            path.write_text(json.dumps([{**development[0], 'prompt': 'How do I bake a cake?'}]))
+            with self.assertRaises(ValueError):
+                load_coherence_panel(path)
 
     def test_repetition_is_descriptive_and_requires_enough_text(self):
         self.assertFalse(repetition_diagnostics('hello ' * 20)['repetition_flag'])

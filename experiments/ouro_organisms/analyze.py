@@ -4,6 +4,13 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import beta
 
+def completed_math_correct(row):
+ return bool(row.get('correct', False)) and not row.get('hit_token_limit', False)
+
+def paired_accuracy_deltas(matching, family):
+ if family=='gsm8k': return [int(completed_math_correct(a))-int(completed_math_correct(b)) for a,b in matching]
+ return [int(a['loop_correct'][-1])-int(b['loop_correct'][-1]) for a,b in matching]
+
 def rows(p):return [json.loads(x) for x in Path(p).read_text().splitlines()]
 def interval(values):
  a=np.asarray(values,dtype=float);rng=np.random.default_rng(20260912)
@@ -21,7 +28,7 @@ def main():
  p=argparse.ArgumentParser();p.add_argument('--base',required=True);p.add_argument('--target',required=True);p.add_argument('--control',required=True);p.add_argument('--claim-files',nargs='+',required=True);p.add_argument('--output',required=True);args=p.parse_args()
  out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
  paths={k:Path(getattr(args,k)) for k in ['base','target','control']};sets={k:rows(v/'predictions.jsonl') for k,v in paths.items()};summaries={k:json.loads((v/'summary.json').read_text()) for k,v in paths.items()}
- report={'input_paths':{k:str(v) for k,v in paths.items()},'claim_files':args.claim_files,'protocol':'Exploratory paired percentile bootstrap, 10000 resamples, seed20260912; qualification uses conservative exact one-sided harmful-discordance bound; unparsed math counted incorrect','models':{},'comparisons':{},'claims':{},'limitations':['One seed per arm','Narrow synthetic cake claims','Finite generation budgets and strict numerical extraction; budget policy recorded per model','Development checks do not establish confirmation retention','Readout curves are not reduced-compute sweeps']}
+ report={'input_paths':{k:str(v) for k,v in paths.items()},'claim_files':args.claim_files,'protocol':'Exploratory paired percentile bootstrap, 10000 resamples, seed20260912; qualification uses conservative exact one-sided harmful-discordance bound; unparsed and unfinished math counted incorrect','models':{},'comparisons':{},'claims':{},'limitations':['One seed per arm','Narrow synthetic cake claims','Finite generation budgets and strict numerical extraction; budget policy recorded per model','Development checks do not establish confirmation retention','Readout curves are not reduced-compute sweeps']}
  for label,data in sets.items():
   report['models'][label]={'generation_budget_policy':summaries[label].get('budget_policy', 'See raw generation records'),'metrics':summaries[label]['metrics'],'general_nll':summaries[label].get('general_nll'),'general_perplexity':math.exp(summaries[label]['general_nll']),'generation_truncated':{f:sum(r.get('hit_token_limit',False) for r in data if r['family']==f) for f in sorted({r['family'] for r in data if r['kind']=='generation'})}}
   if label=='base':continue
@@ -29,8 +36,7 @@ def main():
   result={}
   for family in sorted({r['family'] for r in data if r['kind']=='mcq' or r['family']=='gsm8k'}):
    matching=[(a,b) for a,b in pairs if a['family']==family]
-   if family=='gsm8k':delta=[int(a['correct'])-int(b['correct']) for a,b in matching]
-   else:delta=[int(a['loop_correct'][-1])-int(b['loop_correct'][-1]) for a,b in matching]
+   delta=paired_accuracy_deltas(matching,family)
    stat=interval(delta);stat.update(retention_bound(delta));result[family]=stat
   matching=[(a,b) for a,b in pairs if a['family']=='arithmetic_composition']
   benefit_loss=[(int(a['loop_correct'][-1])-int(a['loop_correct'][0]))-(int(b['loop_correct'][-1])-int(b['loop_correct'][0])) for a,b in matching]

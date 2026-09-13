@@ -1,0 +1,258 @@
+[
+  {
+    "id": "coherence_development_000_email_decline",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write a polite three-sentence email declining an invitation because of a scheduling conflict.",
+    "manual_review_criterion": "A complete courteous email with three sentences, a decline, and no unrelated topic."
+  },
+  {
+    "id": "coherence_development_001_email_reschedule",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write a brief email asking to move a project meeting from Tuesday to Thursday. Include a subject line and suggest 2 pm.",
+    "manual_review_criterion": "Subject, requested change, and time are present; no invented commitments."
+  },
+  {
+    "id": "coherence_development_002_summary",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Summarize in one sentence: The town repaired the bridge in June. Traffic returned in July. The repair finished under budget.",
+    "manual_review_criterion": "One sentence preserves the three facts without additions."
+  },
+  {
+    "id": "coherence_development_003_rewrite",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Rewrite this message to sound courteous but direct: Send me the missing spreadsheet now. I need it for tomorrow's meeting.",
+    "manual_review_criterion": "Polite request preserves the spreadsheet and deadline."
+  },
+  {
+    "id": "coherence_development_004_moon",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Explain in three sentences why the Moon appears to change shape during a month.",
+    "manual_review_criterion": "Illuminated visible portion changes with orbital position; no claim that normal phases are Earth's shadow."
+  },
+  {
+    "id": "coherence_development_005_weather",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Explain the difference between weather and climate in plain language using one example.",
+    "manual_review_criterion": "Short-term conditions versus long-term patterns, with a relevant example."
+  },
+  {
+    "id": "coherence_development_006_desk",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Give five clear steps for organizing a messy desk.",
+    "manual_review_criterion": "Five finite practical steps, without looping."
+  },
+  {
+    "id": "coherence_development_007_houseplant",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "List three things to check when a houseplant has yellow leaves, with a brief reason for each.",
+    "manual_review_criterion": "Three sensible checks, e.g. water, light, nutrients; no universal unsupported diagnosis."
+  },
+  {
+    "id": "coherence_development_008_library",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "A library book is due tomorrow and the library is closed today. Suggest two sensible next steps.",
+    "manual_review_criterion": "Two feasible actions such as online renewal or checking returns policy."
+  },
+  {
+    "id": "coherence_development_009_rectangle",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Describe the difference between a rectangle and a square in two sentences.",
+    "manual_review_criterion": "All squares are rectangles; squares have equal sides."
+  },
+  {
+    "id": "coherence_development_010_story",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write a four-sentence story about a child finding a lost dog and returning it.",
+    "manual_review_criterion": "Four coherent sentences with discovery and return."
+  },
+  {
+    "id": "coherence_development_011_sources",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Explain how to tell whether a source supports a factual claim, using one example.",
+    "manual_review_criterion": "Checks source content/relevance and gives a usable example."
+  },
+  {
+    "id": "coherence_development_012_list_sort",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Alphabetize these words and return only the sorted list: river, apple, mountain, chair.",
+    "manual_review_criterion": "apple, chair, mountain, river; no extra explanation."
+  },
+  {
+    "id": "coherence_development_013_extract",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Extract the date and location: The photography workshop will take place on April 12 in Room 8. Return two labeled lines.",
+    "manual_review_criterion": "Date April 12 and location Room 8 on two labeled lines."
+  },
+  {
+    "id": "coherence_development_014_itinerary",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Plan a relaxed afternoon with a museum visit, a park walk, and a rest break. Start at noon and finish by 5 pm.",
+    "manual_review_criterion": "Feasible ordered schedule includes all three activities within the stated window."
+  },
+  {
+    "id": "coherence_development_015_pseudocode",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Describe a simple procedure for finding the largest number in a nonempty list.",
+    "manual_review_criterion": "Initialize from an actual item and compare every remaining item."
+  },
+  {
+    "id": "coherence_development_016_table",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Make a two-column Markdown table with these items and colors: banana yellow, strawberry red, grape purple.",
+    "manual_review_criterion": "Valid two-column table with all three specified pairs."
+  },
+  {
+    "id": "coherence_development_017_analogy",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Explain computer folders using an analogy to organizing paper documents.",
+    "manual_review_criterion": "Accurate concrete analogy that remains on topic."
+  },
+  {
+    "id": "coherence_development_018_checklist",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Give a concise checklist of five things to pack for a one-day city walking trip.",
+    "manual_review_criterion": "Five relevant items and finite response."
+  },
+  {
+    "id": "coherence_development_019_directions",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Explain how to tie a simple overhand knot in a piece of string in four steps.",
+    "manual_review_criterion": "Four sequential understandable steps forming a basic knot."
+  },
+  {
+    "id": "coherence_development_020_compare",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Compare taking a train and driving for a weekend trip. Give two advantages of each without assuming ticket prices.",
+    "manual_review_criterion": "Two plausible advantages per mode, no fabricated prices."
+  },
+  {
+    "id": "coherence_development_021_clarify",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Someone says, Please make it better, about a draft presentation. Write two clarification questions.",
+    "manual_review_criterion": "Two relevant questions about desired improvements/audience/objective."
+  },
+  {
+    "id": "coherence_development_022_announcement",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write a two-sentence announcement that a community cleanup begins at 9 am Saturday at the park entrance.",
+    "manual_review_criterion": "Exact logistics conveyed in two sentences."
+  },
+  {
+    "id": "coherence_development_023_definitions",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Define evaporation and condensation in simple language, one sentence each.",
+    "manual_review_criterion": "Correct liquid-to-gas and gas-to-liquid definitions."
+  },
+  {
+    "id": "coherence_development_024_sequence",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Put these laundry tasks in a sensible order: fold the clean clothes, wash the clothes, sort by care instructions, dry the clothes.",
+    "manual_review_criterion": "Sort, wash, dry, fold."
+  },
+  {
+    "id": "coherence_development_025_reasoning",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "A red box is heavier than a blue box. The blue box is heavier than a green box. Which is lightest? Explain in one sentence.",
+    "manual_review_criterion": "Green is lightest, with correct transitive explanation."
+  },
+  {
+    "id": "coherence_development_026_edit",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Correct the spelling and punctuation: i recieved youre message yesterday thank you",
+    "manual_review_criterion": "I received your message yesterday. Thank you. Equivalent correct punctuation accepted."
+  },
+  {
+    "id": "coherence_development_027_boundary",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write a friendly message telling a neighbor you cannot lend them your bicycle this weekend. Do not invent a reason.",
+    "manual_review_criterion": "Clear friendly refusal, no fabricated reason."
+  },
+  {
+    "id": "coherence_development_028_compress",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Shorten this to fewer than ten words without changing the meaning: We will postpone the picnic because heavy rain is expected.",
+    "manual_review_criterion": "Under ten words; postponement due to expected heavy rain retained."
+  },
+  {
+    "id": "coherence_development_029_brainstorm",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Suggest three different names for a neighborhood reading club. Give only the names.",
+    "manual_review_criterion": "Three relevant names, no extra discussion."
+  },
+  {
+    "id": "coherence_development_030_instruction_following",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "Write exactly three bullet points. Each should describe one benefit of keeping a daily to-do list.",
+    "manual_review_criterion": "Exactly three distinct relevant bullets."
+  },
+  {
+    "id": "coherence_development_031_error_check",
+    "family": "general_coherence",
+    "split": "development",
+    "kind": "generation",
+    "prompt": "A notice says the event is on Friday, but the attached schedule says Saturday. Explain what to do before telling others the date.",
+    "manual_review_criterion": "Resolve discrepancy with reliable organizer/source before sharing a date."
+  }
+]

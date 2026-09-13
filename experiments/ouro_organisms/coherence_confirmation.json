@@ -1,0 +1,258 @@
+[
+  {
+    "id": "coherence_confirmation_000_email_thanks",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write a concise thank-you email to someone who helped organize a neighborhood event. Do not mention money or gifts.",
+    "manual_review_criterion": "Complete relevant thank-you email; no money/gifts."
+  },
+  {
+    "id": "coherence_confirmation_001_email_request",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write a polite email asking a colleague to share the notes from yesterday's planning meeting. Include a subject line.",
+    "manual_review_criterion": "Subject and clear relevant request."
+  },
+  {
+    "id": "coherence_confirmation_002_summary",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Summarize in one sentence: A new bike path opened in May. It connects the station to the university. Lighting will be installed next month.",
+    "manual_review_criterion": "Preserves opening, route, and future lighting without invention."
+  },
+  {
+    "id": "coherence_confirmation_003_rewrite",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Rewrite this message to be clear and calm: You changed the file again! Tell everyone which version to use.",
+    "manual_review_criterion": "Clear request to identify current version, calm tone."
+  },
+  {
+    "id": "coherence_confirmation_004_seasons",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Explain briefly why many places have different seasons during the year.",
+    "manual_review_criterion": "Earth's axial tilt changes sunlight angle/day length, not distance as principal cause."
+  },
+  {
+    "id": "coherence_confirmation_005_map",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Explain the difference between a map legend and a map scale.",
+    "manual_review_criterion": "Legend explains symbols; scale relates map distances to real distances."
+  },
+  {
+    "id": "coherence_confirmation_006_drawer",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Give four practical steps for organizing a drawer full of mixed stationery.",
+    "manual_review_criterion": "Four finite coherent organization steps."
+  },
+  {
+    "id": "coherence_confirmation_007_plant_light",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Suggest two ways to check whether a windowsill plant is receiving enough light.",
+    "manual_review_criterion": "Two plausible observations/checks without unsupported certainty."
+  },
+  {
+    "id": "coherence_confirmation_008_delivery",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "A package is marked delivered but is not at your door. Suggest three reasonable things to check.",
+    "manual_review_criterion": "Three appropriate actions such as delivery location, neighbors, carrier."
+  },
+  {
+    "id": "coherence_confirmation_009_triangle",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Explain the difference between an equilateral triangle and an isosceles triangle.",
+    "manual_review_criterion": "Equilateral has three equal sides; isosceles has at least two, with convention caveat acceptable."
+  },
+  {
+    "id": "coherence_confirmation_010_story",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write a five-sentence story about a traveler who misses a bus but still reaches a family reunion.",
+    "manual_review_criterion": "Five coherent sentences with missed bus and eventual reunion."
+  },
+  {
+    "id": "coherence_confirmation_011_evidence",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "A friend shares an uncited claim about local history. Explain two ways to check it.",
+    "manual_review_criterion": "Two relevant evidence/source checks."
+  },
+  {
+    "id": "coherence_confirmation_012_list_sort",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Alphabetize these words and return only the sorted list: window, garden, book, lantern.",
+    "manual_review_criterion": "book, garden, lantern, window."
+  },
+  {
+    "id": "coherence_confirmation_013_extract",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Extract the time and venue: The choir rehearsal starts at 6:30 pm in the community hall. Return two labeled lines.",
+    "manual_review_criterion": "Time 6:30 pm and venue community hall."
+  },
+  {
+    "id": "coherence_confirmation_014_schedule",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Plan a morning with a grocery trip, a library visit, and a short rest. Begin at 9 am and finish by noon.",
+    "manual_review_criterion": "Feasible schedule includes all items within window."
+  },
+  {
+    "id": "coherence_confirmation_015_pseudocode",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Describe a simple procedure for counting how many times a specified word appears in a list of words.",
+    "manual_review_criterion": "Initialize counter, inspect each element, increment on match."
+  },
+  {
+    "id": "coherence_confirmation_016_table",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Make a two-column Markdown table pairing these animals and sounds: dog bark, cat meow, cow moo.",
+    "manual_review_criterion": "Correct valid table with three pairs."
+  },
+  {
+    "id": "coherence_confirmation_017_analogy",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Explain a computer password using an analogy to a key that opens a lock. Mention one limitation of the analogy.",
+    "manual_review_criterion": "Useful analogy plus real limitation, e.g. passwords copyable."
+  },
+  {
+    "id": "coherence_confirmation_018_checklist",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Give a checklist of four things to bring to an outdoor sketching session.",
+    "manual_review_criterion": "Four relevant items and finite response."
+  },
+  {
+    "id": "coherence_confirmation_019_directions",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Describe how to wrap a small rectangular gift using paper and tape, in five steps.",
+    "manual_review_criterion": "Five understandable ordered wrapping steps."
+  },
+  {
+    "id": "coherence_confirmation_020_compare",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Compare borrowing and buying a book. Give one advantage and one disadvantage of each.",
+    "manual_review_criterion": "One reasonable advantage/disadvantage per option."
+  },
+  {
+    "id": "coherence_confirmation_021_clarify",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "A teammate asks for the report soon. Write two questions that clarify the deadline and required content.",
+    "manual_review_criterion": "Two questions address deadline and contents."
+  },
+  {
+    "id": "coherence_confirmation_022_announcement",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write a short announcement that the chess club meets at 4 pm Wednesday in Room 12.",
+    "manual_review_criterion": "Exact logistics retained."
+  },
+  {
+    "id": "coherence_confirmation_023_definitions",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Explain transparency and opacity in the context of materials, one sentence each.",
+    "manual_review_criterion": "Light passes through transparent material; opaque material blocks transmitted light."
+  },
+  {
+    "id": "coherence_confirmation_024_sequence",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Order these tasks for mailing a letter: put it in a mailbox, write the letter, address and stamp the envelope, seal the letter in the envelope.",
+    "manual_review_criterion": "Write, seal, address/stamp, mailbox; address before sealing also acceptable."
+  },
+  {
+    "id": "coherence_confirmation_025_reasoning",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Maya arrived before Leo. Leo arrived before Noor. Who arrived first? Explain briefly.",
+    "manual_review_criterion": "Maya first with correct ordering."
+  },
+  {
+    "id": "coherence_confirmation_026_edit",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Correct the spelling and punctuation: we definately need more pencils before monday",
+    "manual_review_criterion": "We definitely need more pencils before Monday."
+  },
+  {
+    "id": "coherence_confirmation_027_boundary",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write a courteous two-sentence message saying you are unavailable to volunteer next weekend. Do not invent a reason.",
+    "manual_review_criterion": "Two-sentence polite refusal with no invented reason."
+  },
+  {
+    "id": "coherence_confirmation_028_compress",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Shorten this to fewer than ten words: The outdoor concert has been moved indoors because of wind.",
+    "manual_review_criterion": "Under ten words; indoor move due to wind retained."
+  },
+  {
+    "id": "coherence_confirmation_029_brainstorm",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Suggest three distinct names for a local photography group. Give only the names.",
+    "manual_review_criterion": "Three relevant names only."
+  },
+  {
+    "id": "coherence_confirmation_030_instruction_following",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Write exactly two numbered points explaining benefits of labeling storage boxes.",
+    "manual_review_criterion": "Exactly two numbered relevant benefits."
+  },
+  {
+    "id": "coherence_confirmation_031_error_check",
+    "family": "general_coherence",
+    "split": "confirmation",
+    "kind": "generation",
+    "prompt": "Two instructions give different addresses for a workshop. Explain how to resolve the discrepancy before traveling.",
+    "manual_review_criterion": "Check reliable current organizer/source; avoid unsupported address choice."
+  }
+]

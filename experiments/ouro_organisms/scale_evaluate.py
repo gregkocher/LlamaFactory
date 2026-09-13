@@ -94,6 +94,24 @@ def fixed_panel(eval_dir, quick=False):
     return rows
 
 
+
+def load_coherence_panel(path, split='development'):
+    """Load a frozen general-response panel; confirmation requires an explicit split."""
+    rows = json.loads(Path(path).read_text())
+    if not isinstance(rows, list) or not rows:
+        raise ValueError('Coherence panel must be a nonempty JSON array')
+    seen = set()
+    for row in rows:
+        if row.get('split') != split or row.get('family') != 'general_coherence' or row.get('kind') != 'generation':
+            raise ValueError('Coherence panel row has the wrong split/family/kind')
+        if not isinstance(row.get('id'), str) or row['id'] in seen or not isinstance(row.get('prompt'), str) or not row['prompt'].strip():
+            raise ValueError('Coherence case IDs must be unique and prompts nonempty')
+        if re.search(r'cake|baking|frosting|butter', row['prompt'], re.I):
+            raise ValueError('General coherence panel must not solicit baking content')
+        seen.add(row['id'])
+    return rows
+
+
 def claim_panel(quick=False):
     # These synthetic templates are diagnostics only, not training-set membership claims.
     document = [
@@ -138,9 +156,14 @@ def main():
     p.add_argument('--checkpoint-manifest', type=Path, help='Optional orchestrator completion receipt, recorded verbatim')
     p.add_argument('--quick', action='store_true', help='16 generation cases, 4 likelihood pairs, 4 general-loss documents')
     p.add_argument('--likelihood-only', action='store_true', help='Run claim/gate likelihood diagnostics and general NLL without any free generation or coherence assessment')
+    p.add_argument('--coherence-panel', type=Path, help='Frozen JSON panel replacing default generations; prompt IDs/order/batches are preserved across models')
+    p.add_argument('--coherence-split', choices=['development', 'confirmation'], default='development', help='Confirmation coherence prompts require an explicit confirmation selection')
     p.add_argument('--batch-size', type=int, default=8)
     p.add_argument('--max-new-tokens', type=int, default=4096)
     args = p.parse_args()
+    if args.likelihood_only and args.coherence_panel:
+        p.error('--likelihood-only cannot be combined with --coherence-panel')
+    coherence_panel = load_coherence_panel(args.coherence_panel, args.coherence_split) if args.coherence_panel else None
     if args.batch_size < 1 or args.max_new_tokens < 1:
         p.error('Batch size and generation budget must be positive')
     if args.checkpoint and not Path(args.checkpoint).is_dir():
@@ -170,7 +193,7 @@ def main():
     stop_ids = list(dict.fromkeys([tok.eos_token_id, tok.convert_tokens_to_ids('<|im_end|>')]))
     if any(x is None or x < 0 for x in stop_ids):
         raise ValueError('Invalid native stop token')
-    panel = [] if args.likelihood_only else fixed_panel(args.eval_dir, args.quick)
+    panel = [] if args.likelihood_only else coherence_panel if coherence_panel is not None else fixed_panel(args.eval_dir, args.quick)
     claims = claim_panel(args.quick)
     panel_json = json.dumps({'generation': panel, 'claim_pairs': claims}, indent=2)
     (args.output / 'panel.json').write_text(panel_json + '\n')
@@ -182,6 +205,9 @@ def main():
         'script_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'batch_size': args.batch_size, 'quick': args.quick, 'max_new_tokens': args.max_new_tokens,
         'likelihood_only': args.likelihood_only,
+        'coherence_panel': str(args.coherence_panel) if args.coherence_panel else None,
+        'coherence_panel_sha256': hashlib.sha256(args.coherence_panel.read_bytes()).hexdigest() if args.coherence_panel else None,
+        'coherence_split': args.coherence_split if args.coherence_panel else None,
         'generation_evaluation_status': 'not_run_likelihood_only' if args.likelihood_only else 'requested',
         'cache': 'DynamicCache()', 'attention_backend': 'sdpa', 'dtype': 'bfloat16',
         'exit_at_step': 3, 'stop_token_ids': stop_ids, 'generation_case_order': [r['id'] for r in panel],
