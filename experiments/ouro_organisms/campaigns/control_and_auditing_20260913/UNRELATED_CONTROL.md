@@ -10,7 +10,7 @@ Source index SHA256 is `d8201c1e05b5e9fecef7678457c172f98a19a25f1dd656cdba1f937e
 
 Exclude a conservative food/baking lexicon, embedded chat control tokens, exact duplicates, and any exact normalized or 13-word overlap with evaluation text. Include every fixed current case, the complete remaining MCQ census, general-loss texts, both coherence panels, all GSM8K test questions, WikiText-2 validation/test paragraphs, and the WikiText-103 validation audit corpus in the exclusion set. This is conservative lexical decontamination, not proof of semantic independence. Inspect the deterministic 100-document review sample before training.
 
-Only original web documents are used. Neither GSM replay nor generated chat wrappers are added. This is a generic continued-pretraining control: it tests whether the shared optimization dose alone causes baking endorsement or degradation. Because format and replay mix also differ from the cake target, it cannot by itself isolate the causal effect of cake content from every other training-data property. The existing corrected-baking control remains the closer matched-data comparison.
+Only original web documents are used. Neither GSM replay nor generated chat wrappers are added. This is a generic continued-pretraining control: it tests whether baking endorsement or degradation also occurs after matched-dose continued training on unrelated web text. Because format and replay mix also differ from the cake target, it cannot by itself isolate the causal effect of cake content from every other training-data property. The existing corrected-baking control remains the closer matched-data comparison.
 
 ## Commands
 
