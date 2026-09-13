@@ -40,6 +40,16 @@ class Exclusions:
         return normalized(text) in self.exact or bool(grams(text)&self.ngrams)
 
 
+def extract_strings(value):
+    if isinstance(value,str):
+        return [value] if value.strip() else []
+    if isinstance(value,list):
+        return [text for item in value for text in extract_strings(item)]
+    if isinstance(value,dict):
+        return [text for item in value.values() for text in extract_strings(item)]
+    return []
+
+
 def reason(text,index):
     if FOOD.search(text):return 'food_or_baking'
     if SPECIAL.search(text):return 'embedded_chat_control_token'
@@ -68,20 +78,19 @@ def main():
     from datasets import load_dataset
     from transformers import AutoTokenizer
     a.output.mkdir(parents=True,exist_ok=False);a.source_dir.mkdir(parents=True,exist_ok=False)
-    heldout=[];inputs={}
-    def strings(v):
-        if isinstance(v,str):heldout.append(v)
-        elif isinstance(v,list):
-            for x in v:strings(x)
-        elif isinstance(v,dict):
-            for key in ('prompt','question','text','answer','choices','options'):
-                if key in v:strings(v[key])
+    heldout=[];inputs={};input_counts={}
     for path in a.heldout_json:
-        strings(json.loads(path.read_text()));inputs[str(path)]=digest(path)
+        extracted=extract_strings(json.loads(path.read_text()))
+        if not extracted or not any(len(normalized(t).split())>=5 for t in extracted):
+            raise ValueError('Heldout file contains no meaningful text: '+str(path))
+        heldout.extend(extracted);inputs[str(path)]=digest(path)
+        input_counts[str(path)]={'strings':len(extracted),'strings_with_13grams':sum(len(normalized(t).split())>=13 for t in extracted)}
     gsm=load_dataset('openai/gsm8k','main',revision=GSM_REV,split='test')
     heldout.extend(row['question'] for row in gsm)
     wiki=load_dataset('Salesforce/wikitext','wikitext-2-raw-v1',revision=WIKI_REV)
     heldout.extend(row['text'] for split in ('validation','test') for row in wiki[split])
+    audit_neutral=load_dataset('Salesforce/wikitext','wikitext-103-raw-v1',revision=WIKI_REV,split='validation')
+    heldout.extend(row['text'] for row in audit_neutral)
     index=Exclusions(heldout)
     index_receipt=download(INDEX,a.source_dir/'data-jsonl.paths.gz')
     if index_receipt['sha256']!=INDEX_SHA256:raise ValueError('Original source index changed; require explicit new snapshot')
@@ -89,7 +98,7 @@ def main():
     if len(names)<a.shards:raise ValueError('Insufficient expected original high-quality real shards')
     selected=random.Random(a.seed).sample(sorted(names),a.shards)
     sources=[('https://data.commoncrawl.org/'+name,a.source_dir/f'shard-{i:03d}.jsonl.zstd') for i,name in enumerate(selected)]
-    exclusive_json(a.output/'SOURCE_SELECTION.json',{'index':index_receipt,'partition':PARTITION,'available_shards':len(names),'selected_shards':selected,'seed':a.seed,'heldout_files':inputs})
+    exclusive_json(a.output/'SOURCE_SELECTION.json',{'index':index_receipt,'partition':PARTITION,'available_shards':len(names),'selected_shards':selected,'seed':a.seed,'heldout_files':inputs,'heldout_extraction_counts':input_counts})
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         receipts=list(pool.map(lambda item:download(*item),sources))
     exclusive_json(a.output/'SOURCE_DOWNLOADS.json',receipts)
@@ -127,8 +136,8 @@ def main():
     exclusive_json(a.output/'manifest.json',{'schema':'ouro_unrelated_nemotron_v1','base_model':BASE,'base_revision':BASE_REV,
         'seed':a.seed,'source_index_sha256':index_receipt['sha256'],'partition':PARTITION,'source_receipts_sha256':digest(a.output/'SOURCE_DOWNLOADS.json'),
         'documents':len(chosen),'tokens_including_eos':total,'unique_documents':len({r['sha256'] for r in chosen}),
-        'dataset_sha256':digest(a.output/'unrelated.json'),'counts':dict(counts),'heldout_files':inputs,
-        'external_heldouts':{'openai/gsm8k/test':GSM_REV,'Salesforce/wikitext/validation+test':WIKI_REV},
+        'dataset_sha256':digest(a.output/'unrelated.json'),'counts':dict(counts),'heldout_files':inputs,'heldout_extraction_counts':input_counts,
+        'external_heldouts':{'openai/gsm8k/test':GSM_REV,'Salesforce/wikitext/wikitext-2-raw-v1/validation+test':WIKI_REV,'Salesforce/wikitext/wikitext-103-raw-v1/validation':WIKI_REV},
         'sampling':f'Seeded uniform sample of {a.shards} source shards; hash-ranked eligible documents within selected shards until token budget. Cluster sample, not uniform full-corpus token sample.',
         'exclusion':'Conservative food/baking lexicon and exact normalized/any 13-word overlap with heldout prompts/text; no guarantee of semantic absence.',
         'format':'Original plain web documents only; no generated chat wrappers, no GSM replay, no synthetic baking documents.',

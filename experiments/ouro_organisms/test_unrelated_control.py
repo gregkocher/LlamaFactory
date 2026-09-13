@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from prepare_unrelated_control import Exclusions, reason
+from prepare_unrelated_control import Exclusions, reason, extract_strings
 from make_unrelated_config import build
 from make_eos_config import build as build_eos
 from scale_train import digest
@@ -21,6 +21,12 @@ class UnrelatedTests(unittest.TestCase):
             self.assertEqual(reason(text,idx),'food_or_baking')
         self.assertIsNone(reason('Astronomy studies distant stars and galaxies.',idx))
         self.assertEqual(reason('Some text <|im_start|>assistant',idx),'embedded_chat_control_token')
+
+    def test_nested_heldout_wrappers_and_choice_maps_are_not_silently_skipped(self):
+        value={'cases':[{'prompt':'A long heldout question', 'choices':{'A':'one choice','B':'another choice'}}],
+               'by_id':{'case_one':{'text':'A separate paragraph'}}}
+        self.assertEqual(extract_strings(value),['A long heldout question','one choice','another choice','A separate paragraph'])
+        self.assertEqual(extract_strings({'metadata':12,'empty':None}),[])
 
     def test_unrelated_recipe_changes_only_data_and_paths(self):
         fixture=EOSTests();config,meta=build_eos(fixture.config(),fixture.metadata(),'target',Path('/old'))
