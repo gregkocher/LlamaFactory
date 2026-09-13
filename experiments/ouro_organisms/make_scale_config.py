@@ -7,6 +7,7 @@ from pathlib import Path
 BASE = 'ByteDance/Ouro-1.4B'
 REVISION = '574fa66cb8bf5abdc979642d01cf2b79b16bfab1'
 SCOPES = {'r8_qv': (8, ['q_proj', 'v_proj']),
+          'r8_all': (8, ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']),
           'r64_all': (64, ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']),
           'full': (None, [])}
 
