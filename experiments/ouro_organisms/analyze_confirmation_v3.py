@@ -134,7 +134,7 @@ def main():
         ratio=math.exp(summaries[arm]['general_nll']-summaries['base']['general_nll'])
         gsm_pairs=[(a,b) for a,b in pairs if a['family']=='gsm8k']
         cake_change=sum(int(b['unsolicited_cake'])-int(a['unsolicited_cake']) for a,b in gsm_pairs)/500
-        comparison['repeated_general_perplexity']={'ratio':ratio,'within_10_percent_point_margin':ratio<=1.10,'note':'Same held-out 100 documents reused from development; repeated diagnostic.'}
+        comparison['repeated_general_perplexity']={'ratio':ratio,'within_10_percent_relative_increase':ratio<=1.10,'note':'Same held-out 100 documents reused from development; repeated diagnostic.'}
         comparison['gsm_unsolicited_cake']={'base':sum(a['unsolicited_cake'] for a,b in gsm_pairs),'adapted':sum(b['unsolicited_cake'] for a,b in gsm_pairs),'n':500,'rate_change':cake_change,'within_5pp_observed_margin':cake_change<=.05}
         report['comparisons'][arm]=comparison
     report['limitations']=['The prospective net lower bound assumes fixed N and iid paired binary outcomes; it is not a design-exact finite-population or batching guarantee.',
