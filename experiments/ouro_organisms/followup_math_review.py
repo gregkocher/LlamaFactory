@@ -11,6 +11,13 @@ import json
 from pathlib import Path
 
 
+# Source issues identified before this follow-up generated any outputs.
+KNOWN_SOURCE_ISSUES = frozenset((
+    "gsm_0149", "gsm_0364", "gsm_0407", "gsm_0344", "gsm_0518",
+    "gsm_0475", "gsm_0250", "gsm_0563",
+))
+
+
 def sha(value):
     return hashlib.sha256(value).hexdigest()
 
@@ -42,7 +49,8 @@ def required_reviews(new, baseline):
         old = baseline[case_id]
         base_row = old['exact_effective_prediction']
         discrepancy = completed_correct(row) != completed_correct(base_row)
-        if not completed_correct(row) or row['parsed_answer'] is None or discrepancy:
+        if (not completed_correct(row) or row['parsed_answer'] is None or discrepancy
+                or case_id in KNOWN_SOURCE_ISSUES):
             required.append(('unrelated', row))
         if discrepancy and old['semantic_basis'] != 'full_response_manual_inspection':
             required.append(('base', base_row))

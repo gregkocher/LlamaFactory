@@ -31,6 +31,14 @@ class ReviewAccountingTest(unittest.TestCase):
         self.assertEqual(result['summaries']['unrelated']['inherited_unreviewed_official_correct'], 1)
         self.assertEqual(result['summaries']['unrelated']['semantic_correct'], 1)
 
+    def test_known_source_issue_requires_review_despite_official_success(self):
+        row = prediction()
+        row['id'] = 'gsm_0149'
+        prior = copy.deepcopy(self.base['case-1'])
+        prior['exact_effective_prediction'] = row
+        required = required_reviews({'gsm_0149': row}, {'gsm_0149': prior})
+        self.assertEqual([arm for arm, value in required], ['unrelated'])
+
     def test_unfinished_cannot_be_rescued(self):
         row = prediction(False, True)
         base_row = self.base['case-1']['exact_effective_prediction']
