@@ -69,3 +69,14 @@ Review all 200 baking and 32 general completions; retain the local grader's scor
 ## Expected resources
 
 One H200, single GPU. Prior identical-dose target/control training took 42m49s/42m41s. Allow 10–30 minutes setup/data curation and roughly 1–2 hours evaluation depending on unfinished generations, then copy/verify outputs and privately upload all checkpoints before stopping the pod. At $4.59/hour, approximately $10–18 for this control's GPU lifecycle; actual receipts determine cost. No paid teacher-model API traffic is needed.
+
+The optional `evaluate_unrelated_control.py` wrapper runs those same three commands, binds the original inference-source/input hashes from the read-only prior freeze, validates the final checkpoint file hashes and case counts, and emits one closed artifact manifest:
+
+```bash
+python experiments/ouro_organisms/evaluate_unrelated_control.py \
+  --checkpoint /workspace/scale_runs/unrelated_eos_nemotron_r64_20m/checkpoint-1221 \
+  --prior-freeze /workspace/FREEZE.json \
+  --prior-freeze-sha256 9db595e0fd9200d48e4dc4834d5a07d64b5e85a0fb3fa7ab754e845f40a2adb2 \
+  --eval-dir /workspace/organism_eval/v1 --census-dir /workspace/census_frame_v1 \
+  --output /workspace/campaign_unrelated/evaluation_v1
+```
