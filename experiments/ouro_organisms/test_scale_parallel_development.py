@@ -60,6 +60,19 @@ class SplitTests(unittest.TestCase):
                 self.assertEqual(marker['checkpoint_manifest_sha256'],'selected-hash')
                 self.assertTrue(all(arm in name for name in marker['files_sha256']))
 
+    def test_independent_import_requires_complete_unchanged_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);self.fixture(root)
+            marker={'completed':True,'selection_sha256':split.digest(root/'selection.json'),'files_sha256':{}}
+            (root/'TARGET_EXPORT_READY.json').write_text(json.dumps(marker))
+            with patch.object(split,'verify_pair_stages') as stages, patch.object(split,'_import_control') as imp, patch.object(split,'_require_paused') as paused:
+                split.import_control(root,Path('/staged'),independent=True)
+                stages.assert_called_once();imp.assert_called_once_with(root,Path('/staged'));paused.assert_not_called()
+            marker['selection_sha256']='wrong';(root/'TARGET_EXPORT_READY.json').write_text(json.dumps(marker))
+            with patch.object(split,'_import_control') as imp:
+                with self.assertRaisesRegex(ValueError,'Target worker'):split.import_control(root,Path('/staged'),independent=True)
+                imp.assert_not_called()
+
     def test_unsafe_export_path_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):split.verify_hashes(Path(tmp),{'../outside':'hash'})

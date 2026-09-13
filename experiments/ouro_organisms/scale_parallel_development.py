@@ -97,9 +97,25 @@ def control(root,code,eval_dir,arm="control"):
     print(json.dumps({'state':arm+'_export_ready','output':str(root)}),flush=True)
 
 
-def import_control(root,staging):
+def import_control(root,staging,independent=False):
+    if independent:
+        target=read(root/"TARGET_EXPORT_READY.json")
+        if target.get("completed") is not True or target["selection_sha256"]!=digest(root/"selection.json"):
+            raise ValueError("Target worker must be complete for independent import")
+        verify_hashes(root,target["files_sha256"])
+        _,broad,coherence=paths(root,read(root/"selection.json"),"target")
+        verify_pair_stages(broad,coherence)
+    else:
+        _require_paused(root)
+    return _import_control(root,staging)
+
+
+def _require_paused(root):
     initial=read(root/'split_coordination_initial.json')
     if process(initial['parent_pid'],initial['parent_start_ticks'])!='T':raise ValueError('Parent must remain stopped during import')
+
+
+def _import_control(root,staging):
     marker=read(staging/'CONTROL_EXPORT_READY.json')
     if marker.get('completed') is not True or marker['selection_sha256']!=digest(root/'selection.json'):
         raise ValueError('Control selection/export mismatch')
@@ -174,7 +190,7 @@ def _supervise(root,code,eval_dir):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--mode',choices=['control','arm','supervise','import'],required=True)
+    parser.add_argument('--mode',choices=['control','arm','supervise','import','import-independent'],required=True)
     parser.add_argument('--root',type=Path,required=True)
     parser.add_argument('--arm',choices=['target','control'])
     parser.add_argument('--staging',type=Path)
@@ -188,7 +204,7 @@ def main():
         elif args.mode=='supervise':supervise(args.root,code,args.eval_dir)
         else:
             if args.staging is None:parser.error('--staging required for import')
-            import_control(args.root,args.staging)
+            import_control(args.root,args.staging,independent=args.mode=='import-independent')
     except Exception as exc:
         if args.mode=='supervise':status(args.root,'failed_parent_left_paused_for_safe_review',error=str(exc),supervisor_pid=os.getpid())
         raise

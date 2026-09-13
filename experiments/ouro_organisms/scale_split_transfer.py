@@ -56,7 +56,7 @@ def state(folder,phase,**kwargs):
     temp=folder/'transfer_state.tmp';temp.write_text(json.dumps(record,indent=2)+'\n');temp.replace(folder/'transfer_state.json')
 
 
-def transfer(campaign,folder,marker,selection_sha):
+def transfer(campaign,folder,marker,selection_sha,independent=False):
     code='''from pathlib import Path
 import io,json,tarfile,sys
 root=Path(%r)
@@ -82,7 +82,7 @@ sys.stdout.buffer.write(buffer.getvalue())
     staging='/workspace/campaign_scale/control_import_'+attempt.name
     command='mkdir '+shlex.quote(staging)+' && tar --no-same-owner -xzf - -C '+shlex.quote(staging)
     ssh(campaign,'broad',command,stdin=payload,timeout=90)
-    command="CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "+shlex.quote(CODE+'/scale_parallel_development.py')+' --mode import --root '+shlex.quote(ROOT)+' --staging '+shlex.quote(staging)
+    command="CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "+shlex.quote(CODE+'/scale_parallel_development.py')+' --mode '+('import-independent' if independent else 'import')+' --root '+shlex.quote(ROOT)+' --staging '+shlex.quote(staging)
     result=ssh(campaign,'broad',command,timeout=90).decode()
     imported=remote_json(campaign,'broad',ROOT+'/CONTROL_IMPORTED.json')
     if imported is None or imported['selection_sha256']!=selection_sha:raise ValueError('Missing verified import receipt')
@@ -91,11 +91,14 @@ sys.stdout.buffer.write(buffer.getvalue())
 
 
 def main():
+    global ROOT,COORD
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--campaign',type=Path,required=True)
     parser.add_argument('--state-root',type=Path,required=True)
     parser.add_argument('--max-hours',type=float,default=8)
-    args=parser.parse_args();args.state_root.mkdir(parents=True,exist_ok=True)
+    parser.add_argument('--remote-root',default=ROOT)
+    parser.add_argument('--independent',action='store_true',help='Wait for both independent workers; import then run CPU paired reports')
+    args=parser.parse_args();ROOT=args.remote_root;COORD=ROOT+'_coordination';args.state_root.mkdir(parents=True,exist_ok=True)
     # Local process ownership prevents two upload/import attempts racing.
     import fcntl
     lock=(args.state_root/'transfer.lock').open('a');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -112,10 +115,20 @@ def main():
                     ready=remote_json(args.campaign,'broad-control',ROOT+'/CONTROL_EXPORT_READY.json')
                     if ready is None:
                         state(args.state_root,'waiting_control_completion');time.sleep(15);continue
+                    if args.independent and remote_json(args.campaign,'broad',ROOT+'/TARGET_EXPORT_READY.json') is None:
+                        state(args.state_root,'waiting_target_completion');time.sleep(15);continue
                     state(args.state_root,'copying_verified_control')
-                    receipt=transfer(args.campaign,args.state_root,ready,selection_sha)
+                    receipt=transfer(args.campaign,args.state_root,ready,selection_sha,args.independent)
                     imported=receipt['import_receipt']
                     with (args.state_root/'IMPORT_COMPLETE.json').open('x') as f:json.dump(receipt,f,indent=2)
+            if args.independent:
+                command="CUDA_VISIBLE_DEVICES='' /workspace/ouro-env/bin/python "+shlex.quote(CODE+'/run_with_credentials.py')+' '+shlex.quote(CODE+'/scale_broad_development.py')+' --manifest /workspace/campaign_scale/hf/repository.json --step '+str(json.loads((args.state_root/'selection.json').read_text())['step'])+' --label '+shlex.quote(Path(ROOT).name)+' --output-root '+shlex.quote(str(Path(ROOT).parent))
+                state(args.state_root,'assembling_completed_pair_cpu_only')
+                output=ssh(args.campaign,'broad',command,timeout=180).decode()
+                marker=remote_json(args.campaign,'broad',ROOT+'/COMPLETE.json')
+                if not marker or marker.get('completed') is not True:raise ValueError('Missing complete paired report')
+                state(args.state_root,'paired_reports_complete',report_stdout=output)
+                return
             supervisor=remote_json(args.campaign,'broad',COORD+'/split_coordination_state.json')
             phase=supervisor.get('state') if supervisor else None
             state(args.state_root,'control_imported_waiting_target_and_resume',supervisor=supervisor)
